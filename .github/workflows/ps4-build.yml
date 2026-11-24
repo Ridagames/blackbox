@@ -19,20 +19,41 @@ permissions:
 jobs:
   build-ps4:
     name: Compile native PS4 application and package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build with pinned OpenOrbis v0.5.4
+      - name: Install pinned OpenOrbis v0.5.4 toolchain
+        shell: bash
         run: |
-          docker run --rm --user 0 \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            -w /workspace/ps4-port/app \
-            openorbisofficial/toolchain:v0.5.4 \
-            bash -lc 'apt-get update -qq && apt-get install -y -qq python3-pil && make clean && make'
+          sudo apt-get update
+          sudo apt-get install -y clang-18 lld-18 python3-pil
+          ARCHIVE="$RUNNER_TEMP/openorbis-v0.5.4.tar.gz"
+          curl --fail --location --retry 3 \
+            https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/download/v0.5.4/toolchain-llvm-18.tar.gz \
+            --output "$ARCHIVE"
+          echo "3c7cd5bb593ca74fa1c13fd59f3938dc0fc07985167f7275063019e63abe4526  $ARCHIVE" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/openorbis-extract" "$RUNNER_TEMP/llvm-bin"
+          tar -xzf "$ARCHIVE" -C "$RUNNER_TEMP/openorbis-extract"
+          TOOLCHAIN="$(find "$RUNNER_TEMP/openorbis-extract" -type f -name link.x -printf '%h\n' -quit)"
+          test -n "$TOOLCHAIN"
+          test -x "$TOOLCHAIN/bin/linux/create-fself"
+          ln -sf "$(command -v clang-18)" "$RUNNER_TEMP/llvm-bin/clang"
+          ln -sf "$(command -v clang++-18)" "$RUNNER_TEMP/llvm-bin/clang++"
+          ln -sf "$(command -v ld.lld-18)" "$RUNNER_TEMP/llvm-bin/ld.lld"
+          echo "OO_PS4_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/llvm-bin" >> "$GITHUB_PATH"
+          echo "$TOOLCHAIN/bin/linux" >> "$GITHUB_PATH"
+      - name: Compile and package
+        shell: bash
+        run: |
+          cd ps4-port/app
+          make clean
+          make
 
       - name: Validate FPKG structure
+        shell: bash
         run: |
           PKG="$(find ps4-port/app -maxdepth 1 -type f -name '*.pkg' -print -quit)"
           test -n "$PKG"
