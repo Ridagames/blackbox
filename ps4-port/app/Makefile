@@ -39,10 +39,6 @@ $(INTDIR)/%.o: $(PROJDIR)/%.cpp | prepare
 	mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -o $@ $<
 
-eboot.bin: $(OBJS)
-	$(LD) $(OBJS) -o $(INTDIR)/$(PROJDIR).elf $(LDFLAGS)
-	$(TOOLCHAIN)/bin/$(CDIR)/create-fself -in=$(INTDIR)/$(PROJDIR).elf -out=$(INTDIR)/$(PROJDIR).oelf --eboot "eboot.bin" --paid 0x3800000000000011
-
 sce_sys/param.sfo: Makefile | prepare
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core sfo_new $@
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core sfo_setentry $@ APP_TYPE --type Integer --maxsize 4 --value 1
