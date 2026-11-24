@@ -59,6 +59,10 @@ eboot.bin: $(OBJS)
 
 pkg.gp4: eboot.bin sce_sys/about/right.sprx sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx data/catalog.json
 	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files "$^"
+	@echo '=== GENERATED GP4 PROJECT ==='
+	@sed -n '1,240p' $@
+	@echo '=== GP4 INPUT FILES ==='
+	@for file in $^; do test -s "$file" || { echo "MISSING: $file"; exit 1; }; done
 
 $(CONTENT_ID).pkg: pkg.gp4
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core pkg_build $< .
