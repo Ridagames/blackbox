@@ -20,3 +20,5 @@ Run `make` from this directory with `OO_PS4_TOOLCHAIN` pointing to OpenOrbis v0.
 Runtime module files are staged from OpenOrbis `src/modules` (the location used by the pinned v0.5.4 release archive).
 
 The Makefile includes the OpenOrbis SDL2 header directory explicitly.
+
+CI installs the legacy OpenSSL 1.1 compatibility runtime needed by the bundled LibOrbisPkg publisher.
