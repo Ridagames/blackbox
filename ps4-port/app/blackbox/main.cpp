@@ -30,7 +30,6 @@ int main(int, char**) {
     blackbox::Controller controller;
     blackbox::Storage storage;
     blackbox::Ui ui(renderer);
-
     storage.load();
     ui.move_selection(storage.last_section());
 
@@ -43,21 +42,22 @@ int main(int, char**) {
         }
 
         controller.poll();
-        if (controller.exit_requested()) running = false;
+        if (controller.exit_requested() && !ui.back())
+            running = false;
 
         ui.move_selection(controller.navigation_delta());
         if (controller.confirm_pressed()) {
+            ui.activate();
             storage.set_last_section(ui.selected_section());
             storage.save();
         }
 
-        ui.render(ui.selected_section());
+        ui.render();
         SDL_Delay(8);
     }
 
     storage.set_last_section(ui.selected_section());
     storage.save();
-
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
