@@ -59,6 +59,7 @@ eboot.bin: $(OBJS)
 
 pkg.gp4: eboot.bin sce_sys/about/right.sprx sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx data/catalog.json
 	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files "$^"
+	python3 -c 'import xml.etree.ElementTree as E; p=E.parse("$@"); root=p.getroot().find("rootdir"); files=p.getroot().find("files"); exec("for f in files.findall(\"file\"):\n parts=f.get(\"targ_path\").split(\"/\")[:-1]\n node=root\n for part in parts:\n  child=next((d for d in node.findall(\"dir\") if d.get(\"targ_name\")==part),None)\n  if child is None: child=E.SubElement(node,\"dir\",{\"targ_name\":part})\n  node=child"); p.write("$@",encoding="utf-8",xml_declaration=True)'
 	@echo '=== GENERATED GP4 PROJECT ==='
 	@sed -n '1,240p' $@
 	@echo '=== GP4 INPUT FILES ==='
