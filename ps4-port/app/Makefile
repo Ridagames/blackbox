@@ -27,8 +27,8 @@ all: $(CONTENT_ID).pkg
 
 prepare:
 	mkdir -p $(INTDIR) sce_sys sce_module
-	cp "$(TOOLCHAIN)/bin/data/modules/libc.prx" sce_module/libc.prx
-	cp "$(TOOLCHAIN)/bin/data/modules/libSceFios2.prx" sce_module/libSceFios2.prx
+	cp "$(TOOLCHAIN)/src/modules/libc.prx" sce_module/libc.prx
+	cp "$(TOOLCHAIN)/src/modules/libSceFios2.prx" sce_module/libSceFios2.prx
 	python3 -c "from PIL import Image; im=Image.open('../../assets/blackbox-logo.png').convert('RGB'); im=im.resize((512,512)); im.save('sce_sys/icon0.png',format='PNG',optimize=True)"
 
 sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx: | prepare
