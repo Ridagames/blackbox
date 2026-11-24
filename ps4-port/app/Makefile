@@ -4,7 +4,6 @@ TITLE_ID := RGSB00001
 CONTENT_ID := IV0000-RGSB00001_00-BLACKBOXPS400001
 
 LIBS := -lc -lkernel -lc++ -lSceUserService -lSceVideoOut -lSceAudioOut -lScePad -lSceSysmodule -lSDL2
-
 TOOLCHAIN := $(OO_PS4_TOOLCHAIN)
 PROJDIR := $(shell basename $(CURDIR))
 INTDIR := $(PROJDIR)/x64/Release
@@ -33,6 +32,9 @@ prepare:
 	cp "$(TOOLCHAIN)/bin/data/modules/libSceFios2.prx" sce_module/libSceFios2.prx
 	python3 -c "from PIL import Image; im=Image.open('../../assets/blackbox-logo.png').convert('RGB'); im=im.resize((512,512)); im.save('sce_sys/icon0.png',format='PNG',optimize=True)"
 
+sce_sys/icon0.png sce_sys/about/right.prx sce_module/libc.prx sce_module/libSceFios2.prx: | prepare
+	@test -s "$@"
+
 $(INTDIR)/%.o: $(PROJDIR)/%.cpp | prepare
 	mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -o $@ $<
@@ -53,6 +55,10 @@ sce_sys/param.sfo: Makefile | prepare
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core sfo_setentry $@ TITLE --type Utf8 --maxsize 128 --value '$(TITLE)'
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core sfo_setentry $@ TITLE_ID --type Utf8 --maxsize 12 --value '$(TITLE_ID)'
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core sfo_setentry $@ VERSION --type Utf8 --maxsize 8 --value '$(VERSION)'
+
+eboot.bin: $(OBJS)
+	$(LD) $(OBJS) -o $(INTDIR)/$(PROJDIR).elf $(LDFLAGS)
+	$(TOOLCHAIN)/bin/$(CDIR)/create-fself -in=$(INTDIR)/$(PROJDIR).elf -out=$(INTDIR)/$(PROJDIR).oelf --eboot "eboot.bin" --paid 0x3800000000000011
 
 pkg.gp4: eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_sys/about/right.prx sce_module/libc.prx sce_module/libSceFios2.prx
 	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files "$^"
