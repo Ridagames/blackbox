@@ -1,0 +1,23 @@
+name: BlackBox PS4 Core Tests
+on:
+  push:
+    branches: [ps4-port]
+    paths: ["ps4-port/**"]
+  pull_request:
+    branches: [ps4-port]
+    paths: ["ps4-port/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-core:
+    name: Build and test portable core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S ps4-port -B build/ps4-core -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build/ps4-core --parallel 2
+      - name: Test
+        run: ctest --test-dir build/ps4-core --output-on-failure
