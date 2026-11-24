@@ -41,7 +41,7 @@ void Ui::render(int selected) {
     SDL_Rect footer{80, 900, 1760, 2};
     SDL_SetRenderDrawColor(renderer_, 45, 58, 76, 255);
     SDL_RenderFillRect(renderer_, &footer);
-    draw_text(renderer_, 82, 930, 3, "LEFT RIGHT SELECT   CROSS OPEN   CIRCLE EXIT",
+    draw_text(renderer_, 82, 930, 3, "D-PAD / STICK SELECT   CROSS OPEN   CIRCLE BACK",
         SDL_Color{140, 165, 190, 255});
     SDL_RenderPresent(renderer_);
 }
