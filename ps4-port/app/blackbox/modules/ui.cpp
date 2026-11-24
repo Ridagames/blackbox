@@ -1,4 +1,5 @@
 #include "ui.hpp"
+#include "font.hpp"
 namespace blackbox {
 void Ui::move_selection(int delta) {
     if (delta == 0) return;
@@ -14,6 +15,11 @@ void Ui::render(int selected) {
     SDL_Rect accent{80, 72, 9, 50};
     SDL_SetRenderDrawColor(renderer_, 0, 190, 255, 255);
     SDL_RenderFillRect(renderer_, &accent);
+    draw_text(renderer_, 115, 60, 8, "BLACKBOX PS4", SDL_Color{238, 245, 255, 255});
+    draw_text(renderer_, 116, 125, 3, "RIDAGAMES", SDL_Color{105, 145, 175, 255});
+
+    const char* labels[3] = {"CATALOG", "FAVORITES", "SETTINGS"};
+    const char* descriptions[3] = {"BROWSE METADATA", "SAVED ENTRIES", "APP PREFERENCES"};
     for (int i = 0; i < 3; ++i) {
         SDL_Rect card{80 + i * 590, 250, 540, 470};
         SDL_SetRenderDrawColor(renderer_, i == selected_ ? 27 : 18,
@@ -26,10 +32,17 @@ void Ui::render(int selected) {
         SDL_Rect inner{card.x + 40, card.y + 70, card.w - 80, 250};
         SDL_SetRenderDrawColor(renderer_, 13, 19, 30, 255);
         SDL_RenderFillRect(renderer_, &inner);
+        draw_text(renderer_, card.x + 42, card.y + 350, 5, labels[i],
+            SDL_Color{235, 242, 252, 255});
+        draw_text(renderer_, card.x + 42, card.y + 400, 2, descriptions[i],
+            SDL_Color{115, 153, 182, 255});
     }
+
     SDL_Rect footer{80, 900, 1760, 2};
     SDL_SetRenderDrawColor(renderer_, 45, 58, 76, 255);
     SDL_RenderFillRect(renderer_, &footer);
+    draw_text(renderer_, 82, 930, 3, "LEFT RIGHT SELECT   CROSS OPEN   CIRCLE EXIT",
+        SDL_Color{140, 165, 190, 255});
     SDL_RenderPresent(renderer_);
 }
 }
