@@ -5,7 +5,7 @@ CONTENT_ID := IV0000-RGSB00001_00-BLACKBOXPS400001
 
 LIBS := -lc -lkernel -lc++ -lSceUserService -lSceVideoOut -lSceAudioOut -lScePad -lSceSysmodule -lSDL2
 TOOLCHAIN := $(OO_PS4_TOOLCHAIN)
-PROJDIR := $(shell basename $(CURDIR))
+PROJDIR := blackbox
 INTDIR := $(PROJDIR)/x64/Release
 CXXFILES := $(wildcard $(PROJDIR)/*.cpp) $(wildcard $(PROJDIR)/modules/*.cpp)
 OBJS := $(patsubst $(PROJDIR)/%.cpp,$(INTDIR)/%.o,$(CXXFILES))
