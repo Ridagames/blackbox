@@ -26,13 +26,12 @@ endif
 all: $(CONTENT_ID).pkg
 
 prepare:
-	mkdir -p $(INTDIR) sce_sys/about sce_module
-	cp "$(TOOLCHAIN)/samples/hello_world/sce_sys/about/right.prx" sce_sys/about/right.prx
+	mkdir -p $(INTDIR) sce_sys sce_module
 	cp "$(TOOLCHAIN)/bin/data/modules/libc.prx" sce_module/libc.prx
 	cp "$(TOOLCHAIN)/bin/data/modules/libSceFios2.prx" sce_module/libSceFios2.prx
 	python3 -c "from PIL import Image; im=Image.open('../../assets/blackbox-logo.png').convert('RGB'); im=im.resize((512,512)); im.save('sce_sys/icon0.png',format='PNG',optimize=True)"
 
-sce_sys/icon0.png sce_sys/about/right.prx sce_module/libc.prx sce_module/libSceFios2.prx: | prepare
+sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx: | prepare
 	@test -s "$@"
 
 $(INTDIR)/%.o: $(PROJDIR)/%.cpp | prepare
@@ -56,7 +55,7 @@ eboot.bin: $(OBJS)
 	$(LD) $(OBJS) -o $(INTDIR)/$(PROJDIR).elf $(LDFLAGS)
 	$(TOOLCHAIN)/bin/$(CDIR)/create-fself -in=$(INTDIR)/$(PROJDIR).elf -out=$(INTDIR)/$(PROJDIR).oelf --eboot "eboot.bin" --paid 0x3800000000000011
 
-pkg.gp4: eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_sys/about/right.prx sce_module/libc.prx sce_module/libSceFios2.prx
+pkg.gp4: eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx
 	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files "$^"
 
 $(CONTENT_ID).pkg: pkg.gp4
