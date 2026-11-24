@@ -24,25 +24,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build with OpenOrbis v0.5.4
-        uses: OpenOrbis/toolchain-action@main
-        with:
-          version: v0.5.4
-          command: |
-            python3 -m pip install --quiet Pillow
-            cd ps4-port/app
-            make clean
-            make
-            PKG="$(find . -maxdepth 1 -type f -name '*.pkg' -print -quit)"
-            test -n "$PKG"
-            test -s "$PKG"
-            test -s eboot.bin
-            test -s sce_sys/param.sfo
-            test -s sce_sys/icon0.png
-            test "$(od -An -tx1 -N4 "$PKG" | tr -d ' \n')" = "7f434e54"
-            sha256sum "$PKG" > BLACKBOX-PS4.sha256
-            echo "Validated package: $PKG"
-            ls -lh "$PKG" eboot.bin sce_sys/param.sfo sce_sys/icon0.png
+      - name: Build with pinned OpenOrbis v0.5.4
+        run: |
+          docker run --rm --user 0 \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace/ps4-port/app \
+            openorbisofficial/toolchain:v0.5.4 \
+            bash -lc 'apt-get update -qq && apt-get install -y -qq python3-pil && make clean && make'
+
+      - name: Validate FPKG structure
+        run: |
+          PKG="$(find ps4-port/app -maxdepth 1 -type f -name '*.pkg' -print -quit)"
+          test -n "$PKG"
+          test -s "$PKG"
+          test -s ps4-port/app/eboot.bin
+          test -s ps4-port/app/sce_sys/param.sfo
+          test -s ps4-port/app/sce_sys/icon0.png
+          test "$(od -An -tx1 -N4 "$PKG" | tr -d ' \n')" = "7f434e54"
+          sha256sum "$PKG" > ps4-port/app/BLACKBOX-PS4.sha256
+          ls -lh "$PKG" ps4-port/app/eboot.bin
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
