@@ -18,3 +18,5 @@ No game-package download or installation is implemented. The package workflow ve
 Run `make` from this directory with `OO_PS4_TOOLCHAIN` pointing to OpenOrbis v0.5.4 and its `bin/linux` tools on PATH.
 
 Runtime module files are staged from OpenOrbis `src/modules` (the location used by the pinned v0.5.4 release archive).
+
+The Makefile includes the OpenOrbis SDL2 header directory explicitly.
