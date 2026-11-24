@@ -1,12 +1,18 @@
-# BLACKBOX PS4 native app
+# BLACKBOX PS4 native application
 
-First native PS4 application shell built against OpenOrbis and SDL2.
+The PS4 application shell is built with the OpenOrbis v0.5.4 toolchain and its SDL2 port.
 
-Modules:
-- blackbox/modules/controller: SDL controller and keyboard event adapter.
-- blackbox/modules/ui: SDL renderer and initial three-panel layout.
-- blackbox/modules/storage: persistent per-user settings via SDL_GetPrefPath.
+## Modules
 
-The shell is deliberately metadata-only. No package download or install function is implemented. Network transport will be integrated only after catalogue policy and endpoint validation are settled.
+- `blackbox/modules/controller`: DualShock 4/game-controller events, navigation, confirm and exit.
+- `blackbox/modules/ui`: SDL2 rendering for the initial catalogue, favorites and settings panels.
+- `blackbox/modules/font`: compact bitmap font for readable on-screen labels without external font assets.
+- `blackbox/modules/storage`: persistent user settings through SDL_GetPrefPath.
 
-Build requires the OpenOrbis PS4 Toolchain (v0.5.4+) and its SDL2 port. Run make from this directory with OO_PS4_TOOLCHAIN set.
+The app currently provides the native shell and navigation foundation. Catalogue parsing and filtering are maintained in the portable core; connecting that data to the PS4 screen and adding HTTPS catalogue refresh remain subsequent integration tasks.
+
+No game-package download or installation is implemented. The package workflow verifies the resulting PS4 PKG structure before it can be attached to a versioned GitHub Release.
+
+## Build
+
+Run `make` from this directory with `OO_PS4_TOOLCHAIN` pointing to OpenOrbis v0.5.4 and its `bin/linux` tools on PATH.
