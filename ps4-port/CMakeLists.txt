@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.16)
+project(blackbox_ps4_core VERSION 0.1.0 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+include(FetchContent)
+FetchContent_Declare(nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(nlohmann_json)
+add_library(blackbox_core core/src/catalog_repository.cpp core/src/catalog_filter.cpp)
+target_include_directories(blackbox_core PUBLIC core/include)
+target_link_libraries(blackbox_core PUBLIC nlohmann_json::nlohmann_json)
+enable_testing()
+add_executable(blackbox_core_tests core/tests/catalog_tests.cpp)
+target_link_libraries(blackbox_core_tests PRIVATE blackbox_core)
+add_test(NAME blackbox_core_tests COMMAND blackbox_core_tests)
