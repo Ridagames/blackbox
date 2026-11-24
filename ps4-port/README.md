@@ -1,20 +1,30 @@
-# BLACKBOX PS4 — portage en cours
+# BLACKBOX PS4 — portage natif
 
-Cette branche isole le travail de portage PS4 sans modifier le catalogue original.
+Cette branche prépare un portage natif PS4 indépendant du binaire PS5. Le code PS5 et les catalogues historiques à la racine ne sont pas modifiés.
 
-## État initial
-- `LIVE/catalog.json` est conservé à son emplacement et n'est pas réécrit.
-- `ps4-port/index.html` est le premier prototype de navigateur de catalogue.
-- Le prototype lit les métadonnées du catalogue, filtre strictement les entrées dont `platform` vaut `ps4`, et n'expose pas les URLs de releases.
-- Les entrées identifiées PS5 ne sont jamais présentées comme exécutables sur PS4.
+## Modules ajoutés
 
-## Limites actuelles
-Ce prototype est une interface web de validation, pas encore un exécutable PS4 ni un FPKG. Le binaire PS5 `blackbox.elf` et son conteneur `.ffpkg` ne peuvent pas être renommés ou convertis en FPKG PS4 : le code doit être recompilé et adapté à l'environnement PS4 (toolchain, APIs, contrôleur, stockage, réseau et packaging).
+- core/include/blackbox/catalog_entry.hpp : modèle de métadonnées d'une entrée.
+- core/include/blackbox/catalog_repository.hpp et core/src/catalog_repository.cpp : lecture et validation minimale du JSON.
+- core/include/blackbox/catalog_filter.hpp et core/src/catalog_filter.cpp : recherche par titre, identifiant et région.
+- core/tests/catalog_tests.cpp : tests du parseur et des filtres.
+- CMakeLists.txt : compilation portable du noyau.
+- .github/workflows/ps4-core-tests.yml : compilation et tests automatiques GitHub Actions.
 
-## Prochaines étapes
-1. Identifier les sources natives et dépendances réellement disponibles dans le projet amont.
-2. Définir une couche de données indépendante de la plateforme et conserver les métadonnées du catalogue.
-3. Implémenter une interface native PS4 et un workflow de compilation OpenOrbis vérifiable.
-4. Produire un FPKG de test seulement après validation d'un ELF PS4 fonctionnel.
+## Règles de compatibilité
 
-Le prototype n'intègre pas de distribution de copies de jeux commerciaux. Il peut servir à afficher les fiches et métadonnées de contenus dont l'utilisateur détient les droits.
+Le parseur ne conserve que les métadonnées PS4 : plateforme, titre, Title ID, région, version, taille et visuels. Il ignore volontairement les champs d'URL de paquets et de sources distantes. Il ne télécharge, ne distribue et n'installe aucun jeu.
+
+Une entrée PS5 n'est jamais convertie en entrée PS4. Un Title ID ou une jaquette ne prouve pas qu'un paquet est compatible.
+
+## Compilation du noyau
+
+Prérequis : CMake 3.16+, compilateur C++17 et accès réseau au premier téléchargement de la dépendance JSON.
+
+    cmake -S ps4-port -B build/ps4-core -DCMAKE_BUILD_TYPE=Release
+    cmake --build build/ps4-core --parallel
+    ctest --test-dir build/ps4-core --output-on-failure
+
+## État du portage
+
+Le noyau portable et ses tests constituent la première couche, pas encore une application PS4. Le dépôt ne contient actuellement ni source native PS4 d'origine, ni toolchain PS4/OpenOrbis configurée, ni cible FPKG vérifiée. Les adaptateurs PS4 (contrôleur, rendu, stockage, réseau et packaging) seront ajoutés séparément après validation de l'environnement. Aucun faux PKG/FPKG ne sera publié.
