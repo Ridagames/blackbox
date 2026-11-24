@@ -16,27 +16,28 @@ jobs:
       - name: Checkout tagged source
         uses: actions/checkout@v4
 
-      - name: Build and validate FPKG with OpenOrbis
-        uses: OpenOrbis/toolchain-action@main
-        with:
-          version: v0.5.4
-          command: |
-            python3 -m pip install --quiet Pillow
-            cd ps4-port/app
-            VERSION="${GITHUB_REF_NAME#blackbox-ps4-v}"
-            test -n "$VERSION"
-            make clean
-            make VERSION="$VERSION"
-            PKG="$(find . -maxdepth 1 -type f -name '*.pkg' -print -quit)"
-            test -n "$PKG"
-            test -s "$PKG"
-            test -s eboot.bin
-            test -s sce_sys/param.sfo
-            test -s sce_sys/icon0.png
-            test "$(od -An -tx1 -N4 "$PKG" | tr -d ' \n')" = "7f434e54"
-            mv "$PKG" "BLACKBOX-PS4-$VERSION.pkg"
-            sha256sum "BLACKBOX-PS4-$VERSION.pkg" > "BLACKBOX-PS4-$VERSION.sha256"
-            ls -lh "BLACKBOX-PS4-$VERSION.pkg" "BLACKBOX-PS4-$VERSION.sha256"
+      - name: Build with pinned OpenOrbis v0.5.4
+        run: |
+          docker run --rm --user 0 \
+            -e GITHUB_REF_NAME="$GITHUB_REF_NAME" \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace/ps4-port/app \
+            openorbisofficial/toolchain:v0.5.4 \
+            bash -lc 'apt-get update -qq && apt-get install -y -qq python3-pil && VERSION="${GITHUB_REF_NAME#blackbox-ps4-v}" && test -n "$VERSION" && make clean && make VERSION="$VERSION"'
+
+      - name: Validate and prepare release assets
+        run: |
+          VERSION="${GITHUB_REF_NAME#blackbox-ps4-v}"
+          PKG="$(find ps4-port/app -maxdepth 1 -type f -name '*.pkg' -print -quit)"
+          test -n "$PKG"
+          test -s "$PKG"
+          test -s ps4-port/app/eboot.bin
+          test -s ps4-port/app/sce_sys/param.sfo
+          test -s ps4-port/app/sce_sys/icon0.png
+          test "$(od -An -tx1 -N4 "$PKG" | tr -d ' \n')" = "7f434e54"
+          mv "$PKG" "ps4-port/app/BLACKBOX-PS4-$VERSION.pkg"
+          sha256sum "ps4-port/app/BLACKBOX-PS4-$VERSION.pkg" > "ps4-port/app/BLACKBOX-PS4-$VERSION.sha256"
+          ls -lh "ps4-port/app/BLACKBOX-PS4-$VERSION.pkg" "ps4-port/app/BLACKBOX-PS4-$VERSION.sha256"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
