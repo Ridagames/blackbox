@@ -11,17 +11,17 @@ bool Storage::load() {
     FILE* file = std::fopen(path_.c_str(), "r");
     if (!file) return true;
     int value = 0;
-    const bool ok = std::fscanf(file, "%d", &value) == 1;
-    std::fclose(file);
-    if (ok && value >= 0 && value <= 2) last_section_ = value;
-    return ok;
+    const bool parsed = std::fscanf(file, "%d", &value) == 1;
+    const bool closed = std::fclose(file) == 0;
+    if (parsed && value >= 0 && value <= 2) last_section_ = value;
+    return parsed && closed;
 }
 bool Storage::save() const {
     if (path_.empty()) return false;
     FILE* file = std::fopen(path_.c_str(), "w");
     if (!file) return false;
     const int written = std::fprintf(file, "%d\n", last_section_);
-    const bool ok = written > 0 && std::fclose(file) == 0;
-    return ok;
+    const bool closed = std::fclose(file) == 0;
+    return written > 0 && closed;
 }
 }
