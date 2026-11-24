@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#090b10">
+<title>BLACKBOX PS4</title>
+<style>
+:root{color-scheme:dark;--bg:#090b10;--panel:#121722;--line:#252e3d;--muted:#8995a8;--text:#f4f7fb;--accent:#56d6a0}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% 0,#162438 0,transparent 45%),var(--bg);color:var(--text);font:16px system-ui, sans-serif}
+header{padding:28px clamp(18px,5vw,64px) 20px;border-bottom:1px solid var(--line);background:#090b10cc}
+.brand{display:flex;align-items:center;gap:13px}.mark{width:42px;height:42px;border:1px solid #3d806c;border-radius:12px;display:grid;place-items:center;color:var(--accent);font-weight:900;font-size:20px}
+h1{font-size:23px;letter-spacing:3px;margin:0}header p{color:var(--muted);margin:8px 0 0}
+main{max-width:1200px;margin:auto;padding:26px clamp(18px,5vw,64px) 60px}
+.toolbar{display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 24px}.toolbar input{flex:1;min-width:220px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;color:var(--text);font:inherit;outline:none}.toolbar input:focus{border-color:var(--accent)}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}.chip{border:1px solid var(--line);background:var(--panel);padding:8px 12px;border-radius:999px;color:var(--muted);font-size:13px}.chip strong{color:var(--text)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px}.game{overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:14px}.cover{aspect-ratio:16/10;background:#1b2533;display:grid;place-items:center;color:#68778c;font-size:12px}.cover img{width:100%;height:100%;object-fit:cover}.info{padding:13px}.info h2{font-size:15px;line-height:1.35;margin:0 0 8px}.meta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.empty,.error{padding:30px 22px;text-align:center;border:1px dashed var(--line);border-radius:16px;color:var(--muted);line-height:1.6}.empty strong,.error strong{display:block;color:var(--text);font-size:17px;margin-bottom:7px}
+footer{border-top:1px solid var(--line);padding:18px clamp(18px,5vw,64px);color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<header><div class="brand"><div class="mark">B</div><div><h1>BLACKBOX <span style="color:var(--accent)">PS4</span></h1><p>Catalogue homebrew • Interface de développement</p></div></div></header>
+<main>
+<div class="toolbar"><input id="search" type="search" placeholder="Rechercher un jeu PS4…" aria-label="Rechercher un jeu PS4"></div>
+<div class="stats"><span class="chip">Plateforme : <strong>PS4</strong></span><span class="chip">Jeux trouvés : <strong id="count">—</strong></span><span class="chip">Catalogue : <strong id="updated">chargement…</strong></span></div>
+<section id="results" class="grid" aria-live="polite"><div class="empty"><strong>Chargement du catalogue…</strong>Lecture de LIVE/catalog.json</div></section>
+</main>
+<footer>BLACKBOX PS4 — prototype d’interface. Les fiches affichent uniquement les métadonnées du catalogue ; aucun lien de téléchargement de jeux n’est intégré.</footer>
+<script>
+const results=document.querySelector('#results'),search=document.querySelector('#search'),count=document.querySelector('#count'),updated=document.querySelector('#updated');
+let games=[];
+function render(){
+ const q=search.value.trim().toLocaleLowerCase('fr');
+ const list=games.filter(g=>(g.platform||'').toLowerCase()==='ps4'&&[g.title,g.id,g.summary].filter(Boolean).join(' ').toLocaleLowerCase('fr').includes(q));
+ count.textContent=list.length;
+ if(!list.length){results.className='';results.innerHTML='<div class="empty"><strong>Aucun jeu PS4 dans le catalogue actuel</strong>Le catalogue chargé ne contient actuellement aucune fiche identifiée comme PS4. Les entrées PS5 ne sont pas présentées comme compatibles PS4.</div>';return}
+ results.className='grid';results.replaceChildren();
+ for(const g of list){
+  const card=document.createElement('article');card.className='game';
+  const cover=document.createElement('div');cover.className='cover';
+  if(g.art&&g.art.cover){const img=document.createElement('img');img.loading='lazy';img.alt='';img.src=g.art.cover;img.onerror=()=>{cover.textContent='Visuel indisponible'};cover.append(img)}else cover.textContent='BLACKBOX';
+  const info=document.createElement('div');info.className='info';
+  const title=document.createElement('h2');title.textContent=g.title||'Jeu sans titre';
+  const meta=document.createElement('div');meta.className='meta';
+  const id=document.createElement('span');id.textContent=g.id||'ID inconnu';
+  const platform=document.createElement('span');platform.textContent='PS4';
+  meta.append(id,platform);info.append(title,meta);card.append(cover,info);results.append(card);
+ }
+}
+search.addEventListener('input',render);
+fetch('../LIVE/catalog.json').then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(data=>{
+ if(!Array.isArray(data.games))throw new Error('Format de catalogue non reconnu');
+ games=data.games;updated.textContent=data.generated?new Date(data.generated).toLocaleDateString('fr-FR'):'disponible';render();
+}).catch(err=>{count.textContent='—';updated.textContent='indisponible';results.className='';results.innerHTML='<div class="error"><strong>Impossible de charger le catalogue</strong>Vérifie que LIVE/catalog.json est présent. Détail : '+String(err.message).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))+'</div>'});
+</script>
+</body></html>
