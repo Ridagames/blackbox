@@ -1,47 +1,34 @@
 #include "modules/controller.hpp"
 #include "modules/storage.hpp"
 #include "modules/ui.hpp"
-
 #include <SDL.h>
 #include <cstdio>
-
 int main(int, char**) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) != 0) {
         std::fprintf(stderr, "BLACKBOX: SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
-
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-    SDL_Window* window = SDL_CreateWindow(
-        "BLACKBOX PS4", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1920, 1080, SDL_WINDOW_SHOWN);
-    if (!window) {
-        std::fprintf(stderr, "BLACKBOX: window creation failed: %s\n", SDL_GetError());
-        SDL_Quit();
-        return 2;
-    }
-
-    SDL_Renderer* renderer = SDL_CreateRenderer(
-        window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    SDL_Window* window = SDL_CreateWindow("BLACKBOX PS4",
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1920, 1080, SDL_WINDOW_SHOWN);
+    if (!window) { SDL_Quit(); return 2; }
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1,
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-    if (!renderer) {
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 3;
-    }
-
+    if (!renderer) { SDL_DestroyWindow(window); SDL_Quit(); return 3; }
     blackbox::Controller controller;
     blackbox::Storage storage;
     blackbox::Ui ui(renderer);
     storage.load();
+    ui.move_selection(storage.last_section());
     bool running = true;
-
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) running = false;
             controller.handle(event);
             if (controller.exit_requested()) running = false;
+            ui.move_selection(controller.navigation_delta());
             if (controller.confirm_pressed()) {
                 storage.set_last_section(ui.selected_section());
                 storage.save();
@@ -50,7 +37,7 @@ int main(int, char**) {
         ui.render(ui.selected_section());
         SDL_Delay(8);
     }
-
+    storage.set_last_section(ui.selected_section());
     storage.save();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
