@@ -55,6 +55,32 @@ jobs:
           make clean
           make
 
+      - name: Capture GP4 packaging diagnostics
+        if: always()
+        shell: bash
+        run: |
+          cd ps4-port/app
+          echo "=== WORKING TREE ==="
+          find . -maxdepth 4 -type f -printf '%p (%s bytes)\\n' | sort
+          echo "=== GENERATED GP4 ==="
+          if test -f pkg.gp4; then
+            sed -n '1,240p' pkg.gp4
+            cp pkg.gp4 "$RUNNER_TEMP/BLACKBOX-diagnostic.gp4"
+          else
+            echo "pkg.gp4 was not generated"
+          fi
+          echo "=== MAKEFILE FILE LIST ==="
+          grep -n -A3 -B2 'pkg.gp4:' Makefile
+      - name: Upload GP4 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLACKBOX-GP4-diagnostics
+          path: |
+            ${{ runner.temp }}/BLACKBOX-diagnostic.gp4
+            ps4-port/app/pkg.gp4
+          if-no-files-found: warn
+          retention-days: 7
       - name: Validate FPKG structure
         shell: bash
         run: |
