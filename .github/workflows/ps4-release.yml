@@ -21,6 +21,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 lld-18 python3-pil
+          echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu focal-updates main' | sudo tee /etc/apt/sources.list.d/focal-compat.list
+          sudo apt-get update
+          sudo apt-get install -y libssl1.1
           ARCHIVE="$RUNNER_TEMP/openorbis-v0.5.4.tar.gz"
           curl --fail --location --retry 3 \
             https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/download/v0.5.4/toolchain-llvm-18.tar.gz \
