@@ -31,7 +31,7 @@ Ui::Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
@@ -62,6 +62,14 @@ Ui::~Ui() {
     for (auto& item : cover_cache_) if (item.second) SDL_DestroyTexture(item.second);
 }
 void Ui::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
+void Ui::controller_input(int navigation, bool confirm, bool back, bool favorite) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiKey_GamepadDpadLeft, navigation < 0);
+    io.AddKeyEvent(ImGuiKey_GamepadDpadRight, navigation > 0);
+    io.AddKeyEvent(ImGuiKey_GamepadFaceDown, confirm);
+    io.AddKeyEvent(ImGuiKey_GamepadFaceRight, back);
+    io.AddKeyEvent(ImGuiKey_GamepadFaceLeft, favorite);
+}
 
 SDL_Texture* Ui::load_cover(const CatalogEntry& entry) {
     const auto found = cover_cache_.find(entry.title_id);
