@@ -393,4 +393,3 @@ void Ui::render() {
     SDL_RenderPresent(renderer_);
 }
 }
-}
