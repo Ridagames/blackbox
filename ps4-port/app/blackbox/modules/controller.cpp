@@ -7,6 +7,7 @@
 #include <orbis/Pad.h>
 #include <orbis/UserService.h>
 #include <time.h>
+#include <SDL2/SDL_gamecontroller.h>
 
 namespace blackbox {
 namespace {
@@ -15,6 +16,7 @@ constexpr uint64_t kInitialRepeatDelayMs = 300;
 constexpr uint64_t kRepeatIntervalMs = 85;
 constexpr uint8_t kStickLow = 64;
 constexpr uint8_t kStickHigh = 192;
+constexpr int16_t kSdlStickThreshold = 12000;
 
 uint64_t input_now() {
     struct timespec ts{};
@@ -24,11 +26,16 @@ uint64_t input_now() {
 }
 }
 
-Controller::Controller() { open(); }
+Controller::Controller() { SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK); open(); }
 Controller::~Controller() { close(); }
 
 void Controller::open() {
     started_ = true;
+    if (SDL_NumJoysticks() > 0) {
+        for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+            if (SDL_IsGameController(i)) { sdl_controller_ = SDL_GameControllerOpen(i); if (sdl_controller_) break; }
+        }
+    }
     seed_ = true;
     retry(input_now());
 }
@@ -135,6 +142,45 @@ void Controller::poll() {
         }
     }
 
+    // SDL fallback: used when the native scePad path is unavailable.
+    // It supports DS4 mappings exposed by SDL without changing the native path.
+    if (!connected_ && sdl_controller_ && SDL_GameControllerGetAttached(sdl_controller_)) {
+        SDL_GameControllerUpdate();
+        const auto button = [this](SDL_GameControllerButton b) {
+            return SDL_GameControllerGetButton(sdl_controller_, b) != 0;
+        };
+        const Sint16 lx = SDL_GameControllerGetAxis(sdl_controller_, SDL_CONTROLLER_AXIS_LEFTX);
+        const Sint16 ly = SDL_GameControllerGetAxis(sdl_controller_, SDL_CONTROLLER_AXIS_LEFTY);
+        uint32_t held = 0;
+        if (button(SDL_CONTROLLER_BUTTON_DPAD_UP) || ly < -kSdlStickThreshold) held |= ORBIS_PAD_BUTTON_UP;
+        if (button(SDL_CONTROLLER_BUTTON_DPAD_DOWN) || ly > kSdlStickThreshold) held |= ORBIS_PAD_BUTTON_DOWN;
+        if (button(SDL_CONTROLLER_BUTTON_DPAD_LEFT) || lx < -kSdlStickThreshold) held |= ORBIS_PAD_BUTTON_LEFT;
+        if (button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || lx > kSdlStickThreshold) held |= ORBIS_PAD_BUTTON_RIGHT;
+        const uint32_t nav_mask = ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN |
+            ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT;
+        uint32_t pressed = held & ~sdl_down_;
+        if (pressed & nav_mask) sdl_repeat_at_ = now + kInitialRepeatDelayMs;
+        else if ((held & nav_mask) && now >= sdl_repeat_at_) {
+            pressed |= held & nav_mask;
+            sdl_repeat_at_ = now + kRepeatIntervalMs;
+        }
+        sdl_down_ = held;
+        if (button(SDL_CONTROLLER_BUTTON_A) && !sdl_confirm_down_) confirm_ = true;
+        sdl_confirm_down_ = button(SDL_CONTROLLER_BUTTON_A);
+        if (button(SDL_CONTROLLER_BUTTON_X) && !sdl_favorite_down_) favorite_ = true;
+        sdl_favorite_down_ = button(SDL_CONTROLLER_BUTTON_X);
+        if ((button(SDL_CONTROLLER_BUTTON_B) && !sdl_exit_down_) ||
+            (button(SDL_CONTROLLER_BUTTON_START) && !sdl_exit_down_)) exit_ = true;
+        sdl_exit_down_ = button(SDL_CONTROLLER_BUTTON_B) || button(SDL_CONTROLLER_BUTTON_START);
+        if (pressed & ORBIS_PAD_BUTTON_UP) navigation_delta_ = -6;
+        else if (pressed & ORBIS_PAD_BUTTON_DOWN) navigation_delta_ = 6;
+        else if (pressed & ORBIS_PAD_BUTTON_LEFT) navigation_delta_ = -1;
+        else if (pressed & ORBIS_PAD_BUTTON_RIGHT) navigation_delta_ = 1;
+    } else {
+        sdl_down_ = 0;
+        sdl_confirm_down_ = sdl_favorite_down_ = sdl_exit_down_ = false;
+    }
+
     if (keyboard_confirm_) confirm_ = true;
     if (keyboard_favorite_) favorite_ = true;
     if (keyboard_exit_) exit_ = true;
@@ -146,6 +192,8 @@ void Controller::poll() {
 
 void Controller::close() {
     started_ = false;
+    if (sdl_controller_) { SDL_GameControllerClose(sdl_controller_); sdl_controller_ = nullptr; }
+    SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
     connected_ = false;
     down_ = 0;
     if (pad_handle_ >= 0) {
