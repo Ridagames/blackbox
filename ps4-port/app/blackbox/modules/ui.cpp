@@ -77,7 +77,17 @@ void Ui::move_selection(int delta) {
 }
 
 void Ui::activate() {
-    if (page_ == Page::Home) {
+    if (page_ == Page::Details) {
+        const auto& entries = catalog_.entries();
+        if (selected_item_ < entries.size()) {
+            const CatalogEntry& entry = entries[selected_item_];
+            if (entry.commercial) {
+                download_message_ = "Jeux commerciaux detecte ! Telechargement annule.";
+            } else {
+                download_message_ = "Homebrew detecte : source autorisee requise.";
+            }
+        }
+    } else if (page_ == Page::Home) {
         if (selected_ == 0) {
             ensure_catalog_loaded();
             selected_item_ = 0;
@@ -320,7 +330,17 @@ void Ui::render_details() {
     draw_text(renderer_, 150, 805, 2,
         storage_.is_favorite(entry.id) ? "SQUARE: REMOVE FROM FAVORITES" : "SQUARE: ADD TO FAVORITES",
         SDL_Color{255, 205, 95, 255});
-    draw_footer("CIRCLE BACK");
+
+    // The download action is visible on every game details page.
+    SDL_Rect download_button{150, 850, 390, 58};
+    fill(renderer_, download_button, SDL_Color{0, 105, 155, 255});
+    draw_text(renderer_, 185, 870, 3, "DOWNLOAD", SDL_Color{245, 250, 255, 255});
+    if (!download_message_.empty()) {
+        const bool blocked = entry.commercial;
+        draw_text(renderer_, 580, 870, 2, clipped(download_message_, 76),
+            blocked ? SDL_Color{255, 145, 130, 255} : SDL_Color{255, 205, 95, 255});
+    }
+    draw_footer("CROSS DOWNLOAD / CHECK     SQUARE FAVORITE     CIRCLE BACK");
 }
 
 void Ui::render_settings() {
