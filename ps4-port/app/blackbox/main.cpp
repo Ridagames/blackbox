@@ -36,12 +36,6 @@ int main(int, char**) {
         controller.poll();
         ui.controller_input(controller.navigation_delta(), controller.confirm_pressed(), controller.exit_requested(), controller.favorite_pressed());
         if (controller.exit_requested() && !ui.back()) running = false;
-        ui.move_selection(controller.navigation_delta());
-        if (controller.confirm_pressed()) {
-            ui.activate();
-            storage.set_last_section(ui.selected_section());
-            storage.save();
-        }
         if (controller.favorite_pressed()) {
             ui.toggle_favorite();
             storage.save();
