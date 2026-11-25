@@ -106,6 +106,11 @@ bool Ui::toggle_favorite() {
         return false;
 
     const auto& entries = catalog_.entries();
+    if (page_ == Page::Favorites) {
+        const auto before = favorite_indices();
+        if (selected_favorite_ >= before.size()) return false;
+        selected_item_ = before[selected_favorite_];
+    }
     if (selected_item_ >= entries.size()) return false;
     const bool added = storage_.toggle_favorite(entries[selected_item_].id);
 
