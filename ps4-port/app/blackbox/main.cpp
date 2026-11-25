@@ -29,8 +29,8 @@ int main(int, char**) {
 
     blackbox::Controller controller;
     blackbox::Storage storage;
-    blackbox::Ui ui(renderer);
     storage.load();
+    blackbox::Ui ui(renderer, storage);
     ui.move_selection(storage.last_section());
 
     bool running = true;
@@ -49,6 +49,10 @@ int main(int, char**) {
         if (controller.confirm_pressed()) {
             ui.activate();
             storage.set_last_section(ui.selected_section());
+            storage.save();
+        }
+        if (controller.favorite_pressed()) {
+            ui.toggle_favorite();
             storage.save();
         }
 
