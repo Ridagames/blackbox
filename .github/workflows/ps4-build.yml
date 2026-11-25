@@ -10,12 +10,12 @@ on:
     paths:
       - "ps4-port/app/**"
       - "ps4-port/tools/**"
-      - "ps4-port/tools/**"
       - ".github/workflows/ps4-build.yml"
   pull_request:
     branches: [ps4-port]
     paths:
       - "ps4-port/app/**"
+      - "ps4-port/tools/**"
       - ".github/workflows/ps4-build.yml"
   workflow_dispatch:
 
