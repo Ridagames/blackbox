@@ -1,5 +1,7 @@
 /*
  * DualShock 4 input for BLACKBOX PS4.
+ * Adapted from the controller handling in nueex/ps-mtp-explorer.
+ * Original project: https://github.com/nueex/ps-mtp-explorer
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "controller.hpp"
@@ -95,7 +97,7 @@ void Controller::poll() {
             retry(now);
         } else {
             OrbisPadData pad{};
-            const int32_t rc = scePadRead(pad_handle_, &pad, 1);
+            const int32_t rc = scePadReadState(pad_handle_, &pad);
             if (rc != 0) {
                 error_ = rc;
                 connected_ = false;
