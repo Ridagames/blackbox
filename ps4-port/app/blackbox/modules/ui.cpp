@@ -2,6 +2,7 @@
 #include "font.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <vector>
 
 namespace blackbox {
 namespace {
@@ -18,6 +19,16 @@ void fill(SDL_Renderer* renderer, const SDL_Rect& rect, SDL_Color color) {
     SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
     SDL_RenderFillRect(renderer, &rect);
 }
+}
+
+std::vector<std::size_t> Ui::favorite_indices() const {
+    std::vector<std::size_t> result;
+    const auto& entries = catalog_.entries();
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (storage_.is_favorite(entries[i].id))
+            result.push_back(i);
+    }
+    return result;
 }
 
 void Ui::ensure_catalog_loaded() {
@@ -39,6 +50,7 @@ void Ui::move_selection(int delta) {
         selected_ = (selected_ + delta + 3) % 3;
         return;
     }
+
     if (page_ == Page::Catalog && !catalog_.entries().empty()) {
         const int last = static_cast<int>(catalog_.entries().size() - 1);
         int next = static_cast<int>(selected_item_) + delta;
@@ -47,6 +59,16 @@ void Ui::move_selection(int delta) {
         if (selected_item_ < scroll_offset_) scroll_offset_ = selected_item_;
         if (selected_item_ >= scroll_offset_ + kVisibleRows)
             scroll_offset_ = selected_item_ - kVisibleRows + 1;
+    } else if (page_ == Page::Favorites) {
+        const auto indices = favorite_indices();
+        if (!indices.empty()) {
+            int next = static_cast<int>(selected_favorite_) + delta;
+            next = std::max(0, std::min(static_cast<int>(indices.size() - 1), next));
+            selected_favorite_ = static_cast<std::size_t>(next);
+            if (selected_favorite_ < scroll_offset_) scroll_offset_ = selected_favorite_;
+            if (selected_favorite_ >= scroll_offset_ + kVisibleRows)
+                scroll_offset_ = selected_favorite_ - kVisibleRows + 1;
+        }
     }
 }
 
@@ -58,18 +80,50 @@ void Ui::activate() {
             scroll_offset_ = 0;
             page_ = Page::Catalog;
         } else if (selected_ == 1) {
+            ensure_catalog_loaded();
+            selected_favorite_ = 0;
+            scroll_offset_ = 0;
             page_ = Page::Favorites;
         } else {
             page_ = Page::Settings;
         }
     } else if (page_ == Page::Catalog && !catalog_.entries().empty()) {
+        details_origin_ = Page::Catalog;
         page_ = Page::Details;
+    } else if (page_ == Page::Favorites) {
+        const auto indices = favorite_indices();
+        if (selected_favorite_ < indices.size()) {
+            selected_item_ = indices[selected_favorite_];
+            details_origin_ = Page::Favorites;
+            page_ = Page::Details;
+        }
     }
+}
+
+bool Ui::toggle_favorite() {
+    ensure_catalog_loaded();
+    if (page_ != Page::Catalog && page_ != Page::Details && page_ != Page::Favorites)
+        return false;
+
+    const auto& entries = catalog_.entries();
+    if (selected_item_ >= entries.size()) return false;
+    const bool added = storage_.toggle_favorite(entries[selected_item_].id);
+
+    if (page_ == Page::Favorites) {
+        const auto indices = favorite_indices();
+        if (indices.empty()) {
+            selected_favorite_ = 0;
+            scroll_offset_ = 0;
+        } else if (selected_favorite_ >= indices.size()) {
+            selected_favorite_ = indices.size() - 1;
+        }
+    }
+    return added;
 }
 
 bool Ui::back() {
     if (page_ == Page::Details) {
-        page_ = Page::Catalog;
+        page_ = details_origin_;
         return true;
     }
     if (page_ != Page::Home) {
@@ -143,6 +197,8 @@ void Ui::render_catalog() {
             draw_text(renderer_, 125, y + 17, 2, clipped(entries[i].title, 48), title_color);
             draw_text(renderer_, 850, y + 17, 2, entries[i].title_id,
                 SDL_Color{105, 190, 220, 255});
+            if (storage_.is_favorite(entries[i].id))
+                draw_text(renderer_, 1110, y + 17, 2, "*", SDL_Color{255, 205, 95, 255});
         }
 
         const auto& entry = entries[selected_item_];
@@ -168,12 +224,41 @@ void Ui::render_catalog() {
             draw_text(renderer_, 1230, 615, 2, "SIZE: N/A",
                 SDL_Color{170, 190, 210, 255});
         }
-        draw_text(renderer_, 1230, 720, 2, "METADATA ONLY",
-            SDL_Color{80, 210, 155, 255});
-        draw_text(renderer_, 1230, 760, 2, "NO PACKAGE LINKS INCLUDED",
+        draw_text(renderer_, 1230, 720, 2,
+            storage_.is_favorite(entry.id) ? "SAVED TO FAVORITES" : "NOT IN FAVORITES",
+            storage_.is_favorite(entry.id) ? SDL_Color{255, 205, 95, 255} : SDL_Color{80, 210, 155, 255});
+        draw_text(renderer_, 1230, 760, 2, "METADATA ONLY",
             SDL_Color{125, 145, 165, 255});
     }
-    draw_footer("UP / DOWN OR LEFT STICK SCROLL     CROSS DETAILS     CIRCLE BACK");
+    draw_footer("UP / DOWN SCROLL     CROSS DETAILS     SQUARE SAVE FAVORITE     CIRCLE BACK");
+}
+
+void Ui::render_favorites() {
+    const auto indices = favorite_indices();
+    draw_header("FAVORITES", std::to_string(indices.size()) + " SAVED ENTRIES");
+    SDL_Rect panel{80, 190, 1760, 735};
+    fill(renderer_, panel, SDL_Color{15, 22, 34, 255});
+
+    if (indices.empty()) {
+        draw_text(renderer_, 140, 390, 4, "NO FAVORITES SAVED YET",
+            SDL_Color{200, 215, 230, 255});
+        draw_text(renderer_, 140, 465, 2, "OPEN THE CATALOG AND PRESS SQUARE TO SAVE A GAME",
+            SDL_Color{130, 165, 190, 255});
+    } else {
+        const std::size_t end = std::min(indices.size(), scroll_offset_ + kVisibleRows);
+        for (std::size_t i = scroll_offset_; i < end; ++i) {
+            const auto& entry = catalog_.entries()[indices[i]];
+            const int y = 250 + static_cast<int>(i - scroll_offset_) * 62;
+            SDL_Rect item{110, y, 1690, 54};
+            fill(renderer_, item, i == selected_favorite_
+                ? SDL_Color{28, 63, 86, 255} : SDL_Color{20, 29, 43, 255});
+            draw_text(renderer_, 140, y + 17, 2, clipped(entry.title, 72),
+                i == selected_favorite_ ? SDL_Color{245, 250, 255, 255} : SDL_Color{190, 205, 220, 255});
+            draw_text(renderer_, 1500, y + 17, 2, entry.title_id,
+                SDL_Color{105, 190, 220, 255});
+        }
+    }
+    draw_footer("UP / DOWN SELECT     CROSS DETAILS     SQUARE REMOVE     CIRCLE BACK");
 }
 
 void Ui::render_details() {
@@ -200,9 +285,10 @@ void Ui::render_details() {
         SDL_Color{185, 200, 218, 255});
     draw_text(renderer_, 150, 715, 3, "GAME ID: " + clipped(entry.game_id, 55),
         SDL_Color{185, 200, 218, 255});
-    draw_text(renderer_, 150, 805, 2, "METADATA ONLY - NO DOWNLOAD OR INSTALL ACTION",
-        SDL_Color{80, 210, 155, 255});
-    draw_footer("CIRCLE BACK TO CATALOG");
+    draw_text(renderer_, 150, 805, 2,
+        storage_.is_favorite(entry.id) ? "SQUARE: REMOVE FROM FAVORITES" : "SQUARE: ADD TO FAVORITES",
+        SDL_Color{255, 205, 95, 255});
+    draw_footer("CIRCLE BACK");
 }
 
 void Ui::render_empty_page(const std::string& title, const std::string& message) {
@@ -220,9 +306,7 @@ void Ui::render() {
         case Page::Home: render_home(); break;
         case Page::Catalog: render_catalog(); break;
         case Page::Details: render_details(); break;
-        case Page::Favorites:
-            render_empty_page("FAVORITES", "NO FAVORITES SAVED YET");
-            break;
+        case Page::Favorites: render_favorites(); break;
         case Page::Settings:
             render_empty_page("SETTINGS", "SETTINGS PANEL IN DEVELOPMENT");
             break;
