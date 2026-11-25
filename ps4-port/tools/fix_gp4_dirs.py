@@ -18,11 +18,15 @@ def main(path):
         rootdir.remove(child)
 
     directories = {}
-    for file_node in files_node.findall("file"):
+    for file_node in list(files_node.findall("file")):
         target = file_node.get("targ_path", "").replace("\\", "/").strip("/")
         if not target:
             continue
         parts = [part for part in target.split("/")[:-1] if part and part != "."]
+        if len(parts) > 3:
+            print("Skipping malformed GP4 target path:", target[:240])
+            files_node.remove(file_node)
+            continue
         parent = rootdir
         prefix = []
         for part in parts:
@@ -34,8 +38,8 @@ def main(path):
                 directories[key] = ET.SubElement(parent, "dir", {"targ_name": part})
             parent = directories[key]
 
-    if hasattr(ET, "indent"):
-        ET.indent(tree, space="  ")
+    # Keep the generated XML compact. The directory tree is deliberately shallow
+    # (sce_sys/about and data/covers), so no recursive pretty-printer is needed.
     tree.write(path, encoding="utf-8", xml_declaration=True)
 
 if __name__ == "__main__":
