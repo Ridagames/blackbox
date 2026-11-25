@@ -65,7 +65,7 @@ pkg.gp4: eboot.bin sce_sys/about/right.sprx sce_sys/param.sfo sce_sys/icon0.png 
 	@echo '=== GENERATED GP4 PROJECT ==='
 	@sed -n '1,240p' $@
 	@echo '=== GP4 INPUT FILES ==='
-	@for file in $(filter-out data/.artwork-ready,$^); do test -s "$file" || { echo "MISSING: $file"; exit 1; }; done
+	@for file in $(filter-out data/.artwork-ready,$^); do test -s "$$file" || { echo "MISSING: $$file"; exit 1; }; done
 	@find data/covers -type f -name '*.bmp' -exec test -s {} \;
 
 $(CONTENT_ID).pkg: pkg.gp4
