@@ -31,10 +31,9 @@ Ui::Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
-    // The PS4 controller is polled by the native scePad backend in Controller.
-    // Tell Dear ImGui that gamepad navigation events are supplied by our app.
-    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+    // The native PS4 scePad input is translated to keyboard navigation below.
+    // Keyboard navigation is more reliable with this older SDL2 renderer/backend.
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
@@ -67,11 +66,14 @@ Ui::~Ui() {
 void Ui::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
 void Ui::controller_input(int navigation, bool confirm, bool back, bool favorite) {
     ImGuiIO& io = ImGui::GetIO();
-    io.AddKeyEvent(ImGuiKey_GamepadDpadLeft, navigation < 0);
-    io.AddKeyEvent(ImGuiKey_GamepadDpadRight, navigation > 0);
-    io.AddKeyEvent(ImGuiKey_GamepadFaceDown, confirm);
-    io.AddKeyEvent(ImGuiKey_GamepadFaceRight, back);
-    io.AddKeyEvent(ImGuiKey_GamepadFaceLeft, favorite);
+
+    // Translate native DualShock 4 actions into ImGui keyboard navigation.
+    // This avoids relying on the incomplete gamepad backend support in old SDL2.
+    io.AddKeyEvent(ImGuiKey_UpArrow, navigation < 0);
+    io.AddKeyEvent(ImGuiKey_DownArrow, navigation > 0);
+    io.AddKeyEvent(ImGuiKey_Enter, confirm);
+    io.AddKeyEvent(ImGuiKey_Escape, back);
+    io.AddKeyEvent(ImGuiKey_F, favorite);
 }
 
 SDL_Texture* Ui::load_cover(const CatalogEntry& entry) {
