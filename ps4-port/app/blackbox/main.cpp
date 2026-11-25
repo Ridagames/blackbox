@@ -33,6 +33,7 @@ int main(int, char**) {
             controller.handle(event);
         }
         controller.poll();
+        ui.controller_input(controller.navigation_delta(), controller.confirm_pressed(), controller.exit_requested(), controller.favorite_pressed());
         if (controller.exit_requested() && !ui.back()) running = false;
         ui.move_selection(controller.navigation_delta());
         if (controller.confirm_pressed()) {
