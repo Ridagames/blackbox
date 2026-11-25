@@ -14,6 +14,9 @@ struct CatalogEntry {
     std::string release_date;
     std::string cover;
     std::string hero;
+    std::string content_type;
+    std::string download_url;
+    std::string filename;
     std::uint64_t size_bytes = 0;
     // Fail closed: entries are commercial unless the catalogue explicitly marks them as homebrew.
     bool commercial = true;
