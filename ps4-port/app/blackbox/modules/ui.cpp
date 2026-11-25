@@ -80,16 +80,8 @@ Ui::~Ui() {
     for (auto& item : cover_cache_) if (item.second) SDL_DestroyTexture(item.second);
 }
 void Ui::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
-void Ui::controller_input(int navigation, bool confirm, bool back, bool favorite) {
-    ImGuiIO& io = ImGui::GetIO();
-
-    // Translate native DualShock 4 actions into ImGui keyboard navigation.
-    // This avoids relying on the incomplete gamepad backend support in old SDL2.
-    io.AddKeyEvent(ImGuiKey_UpArrow, navigation < 0);
-    io.AddKeyEvent(ImGuiKey_DownArrow, navigation > 0);
-    io.AddKeyEvent(ImGuiKey_Enter, confirm);
-    io.AddKeyEvent(ImGuiKey_Escape, back);
-    io.AddKeyEvent(ImGuiKey_F, favorite);
+void Ui::controller_input(int, bool, bool, bool) {
+    // Native controller actions are handled once in main.cpp.
 }
 
 SDL_Texture* Ui::load_cover(const CatalogEntry& entry) {
@@ -130,8 +122,17 @@ void Ui::move_selection(int delta) {
     if (page_ == Page::Home) selected_ = (selected_ + delta + 3) % 3;
     else if (page_ == Page::Settings) selected_setting_ = (selected_setting_ + delta + 2) % 2;
     else if (page_ == Page::Catalog && !catalog_.entries().empty()) {
-        int n = (int)catalog_.entries().size();
-        selected_item_ = (std::size_t)std::max(0, std::min(n - 1, (int)selected_item_ + delta));
+        const auto& entries = catalog_.entries();
+        std::vector<std::size_t> visible;
+        for (std::size_t i=0;i<entries.size();++i)
+            if (search_query_[0]=='\\0' || entries[i].title.find(search_query_)!=std::string::npos ||
+                entries[i].title_id.find(search_query_)!=std::string::npos) visible.push_back(i);
+        if (!visible.empty()) {
+            auto it=std::find(visible.begin(),visible.end(),selected_item_);
+            int pos=it==visible.end()?0:(int)(it-visible.begin());
+            pos=std::max(0,std::min((int)visible.size()-1,pos+delta));
+            selected_item_=visible[(std::size_t)pos];
+        }
     } else if (page_ == Page::Favorites) {
         auto ids = favorite_indices();
         if (!ids.empty()) selected_favorite_ = (std::size_t)std::max(0, std::min((int)ids.size()-1, (int)selected_favorite_+delta));
@@ -224,42 +225,55 @@ void Ui::render_catalog() {
     ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
     ImGui::Begin("PS4 CATALOGUE",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize);
     const auto& entries=catalog_.entries();
-    const std::size_t page_size=18;
-    const std::size_t page=selected_item_/page_size;
-    const std::size_t first=page*page_size;
+    std::vector<std::size_t> visible;
+    visible.reserve(entries.size());
+    for (std::size_t i=0;i<entries.size();++i)
+        if (search_query_[0]=='\\0' || entries[i].title.find(search_query_)!=std::string::npos ||
+            entries[i].title_id.find(search_query_)!=std::string::npos) visible.push_back(i);
     ImGui::TextColored(accent(storage_.accent_theme()),"BLACKBOX"); ImGui::SameLine(); ImGui::Text(" / PS4 CATALOGUE");
-    ImGui::SameLine(ImGui::GetWindowWidth()-280); ImGui::TextDisabled("%u TITLES",(unsigned)entries.size());
+    ImGui::SameLine(ImGui::GetWindowWidth()-280); ImGui::TextDisabled("%u / %u TITLES",(unsigned)visible.size(),(unsigned)entries.size());
     ImGui::Separator();
+    ImGui::SetNextItemWidth(520.0f);
+    ImGui::InputTextWithHint("##catalog-search","Search a game or title ID...",search_query_,sizeof(search_query_));
+    ImGui::SameLine(); if(ImGui::Button("CLEAR",ImVec2(90,34))) search_query_[0]='\\0';
+    visible.clear();
+    for (std::size_t i=0;i<entries.size();++i)
+        if (search_query_[0]=='\\0' || entries[i].title.find(search_query_)!=std::string::npos ||
+            entries[i].title_id.find(search_query_)!=std::string::npos) visible.push_back(i);
+    if (!visible.empty() && std::find(visible.begin(),visible.end(),selected_item_)==visible.end())
+        selected_item_=visible.front();
+    const std::size_t page_size=18;
+    std::size_t selected_pos=0;
+    auto it=std::find(visible.begin(),visible.end(),selected_item_);
+    if(it!=visible.end()) selected_pos=(std::size_t)(it-visible.begin());
+    const std::size_t page=selected_pos/page_size, first=page*page_size;
     ImGui::BeginChild("cover-grid",ImVec2(0,-92),false);
     const float gap=16.0f, width=ImGui::GetContentRegionAvail().x;
     const int columns=6; const float cardW=(width-gap*(columns-1))/columns;
-    const std::size_t last=std::min(entries.size(),first+page_size);
-    for(std::size_t i=first;i<last;++i){
-        const auto& e=entries[i]; ImGui::PushID((int)i);
-        if((int)((i-first)%columns)!=0) ImGui::SameLine(0,gap);
-        ImGui::BeginGroup();
-        SDL_Texture* tex=load_cover(e);
-        const bool selected = (i == selected_item_);
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, selected ? 3.0f : 1.0f);
-        if (selected) ImGui::PushStyleColor(ImGuiCol_Border, accent(storage_.accent_theme()));
+    const std::size_t last=std::min(visible.size(),first+page_size);
+    for(std::size_t pos=first;pos<last;++pos){
+        const std::size_t i=visible[pos]; const auto& e=entries[i]; ImGui::PushID((int)i);
+        if((int)((pos-first)%columns)!=0) ImGui::SameLine(0,gap);
+        ImGui::BeginGroup(); SDL_Texture* tex=load_cover(e); const bool selected=(i==selected_item_);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,selected?3.0f:1.0f);
+        if(selected) ImGui::PushStyleColor(ImGuiCol_Border,accent(storage_.accent_theme()));
         bool clicked=false;
         if(tex) clicked=ImGui::ImageButton("cover",(ImTextureID)(intptr_t)tex,ImVec2(cardW,cardW*1.12f));
         else clicked=ImGui::Button("NO COVER",ImVec2(cardW,cardW*1.12f));
-        if (selected) ImGui::PopStyleColor();
-        ImGui::PopStyleVar();
+        if(selected) ImGui::PopStyleColor(); ImGui::PopStyleVar();
         if(clicked){selected_item_=i;details_origin_=Page::Catalog;page_=Page::Details;}
-        const std::string short_title = clipped_title(e.title, cardW);
+        const std::string short_title=clipped_title(e.title,cardW);
         if(selected) ImGui::TextColored(accent(storage_.accent_theme()),"%s",short_title.c_str());
         else ImGui::Text("%s",short_title.c_str());
         if(storage_.show_title_ids()) ImGui::TextDisabled("%s",e.title_id.c_str());
         ImGui::EndGroup(); ImGui::PopID();
     }
-    ImGui::EndChild();
-    ImGui::Separator();
-    if(ImGui::Button("PREVIOUS",ImVec2(130,38)) && page>0) selected_item_=(page-1)*page_size;
-    ImGui::SameLine(); ImGui::TextDisabled("PAGE %u / %u",(unsigned)(page+1),(unsigned)std::max<std::size_t>(1,(entries.size()+page_size-1)/page_size));
-    ImGui::SameLine(); if(ImGui::Button("NEXT",ImVec2(130,38)) && first+page_size<entries.size()) selected_item_=first+page_size;
-    ImGui::SameLine(); ImGui::TextDisabled("CROSS  DETAILS     SQUARE  FAVORITE     CIRCLE  BACK");
+    if(visible.empty()) ImGui::TextDisabled("No title matches your search.");
+    ImGui::EndChild(); ImGui::Separator();
+    if(ImGui::Button("PREVIOUS",ImVec2(130,38)) && page>0) selected_item_=visible[(page-1)*page_size];
+    ImGui::SameLine(); ImGui::TextDisabled("PAGE %u / %u",(unsigned)(page+1),(unsigned)std::max<std::size_t>(1,(visible.size()+page_size-1)/page_size));
+    ImGui::SameLine(); if(ImGui::Button("NEXT",ImVec2(130,38)) && first+page_size<visible.size()) selected_item_=visible[first+page_size];
+    ImGui::SameLine(); ImGui::TextDisabled("DPAD NAVIGATE   CROSS DETAILS   SQUARE FAVORITE   CIRCLE BACK");
     ImGui::End();
 }
 void Ui::render_favorites() {
