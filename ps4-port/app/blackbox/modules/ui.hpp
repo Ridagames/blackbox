@@ -16,6 +16,7 @@ public:
     void render();
     void set_controller_debug(bool connected, int32_t error, uint32_t buttons, int navigation);
     void move_selection(int delta);
+    void handle_controller_buttons(uint32_t pressed_buttons);
     void activate();
     bool toggle_favorite();
     bool back();
