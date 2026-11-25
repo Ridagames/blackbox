@@ -47,9 +47,7 @@ Ui::Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    // Use ImGui keyboard navigation as the single focus system.
-    // Native PS4 pad input is translated into these same key events below.
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // Controller navigation is handled by the explicit BLACKBOX selection model.
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
@@ -80,15 +78,6 @@ Ui::~Ui() {
     for (auto& item : cover_cache_) if (item.second) SDL_DestroyTexture(item.second);
 }
 void Ui::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
-void Ui::controller_input(int navigation, bool confirm, bool, bool) {
-    controller_up_ = navigation == -6;
-    controller_down_ = navigation == 6;
-    controller_left_ = navigation == -1;
-    controller_right_ = navigation == 1;
-    controller_page_up_ = navigation <= -18;
-    controller_page_down_ = navigation >= 18;
-    controller_confirm_ = confirm;
-}
 SDL_Texture* Ui::load_cover(const CatalogEntry& entry) {
     const auto found = cover_cache_.find(entry.title_id);
     if (found != cover_cache_.end()) return found->second;
@@ -298,8 +287,6 @@ void Ui::render_catalog() {
         bool clicked=false;
         if(tex) clicked=ImGui::ImageButton("cover",(ImTextureID)(intptr_t)tex,ImVec2(cardW,cardW*1.12f));
         else clicked=ImGui::Button("NO COVER",ImVec2(cardW,cardW*1.12f));
-        if (pos == first) ImGui::SetItemDefaultFocus();
-        if (ImGui::IsItemFocused()) selected_item_ = i;
         if(selected) ImGui::PopStyleColor(); ImGui::PopStyleVar();
         if(clicked){selected_item_=i;details_origin_=Page::Catalog;selected_detail_action_=0;page_=Page::Details;}
         const std::string short_title=clipped_title(e.title,cardW);
@@ -324,8 +311,6 @@ void Ui::render_favorites() {
     for (std::size_t n=0;n<ids.size();++n) {
         const auto& e=catalog_.entries()[ids[n]];
         if (ImGui::Selectable(e.title.c_str(),n==selected_favorite_,0,ImVec2(0,58))) { selected_favorite_=n; selected_item_=ids[n]; details_origin_=Page::Favorites; selected_detail_action_=0; page_=Page::Details; }
-        if (n == 0) ImGui::SetItemDefaultFocus();
-        if (ImGui::IsItemFocused()) { selected_favorite_ = n; selected_item_ = ids[n]; }
         ImGui::SameLine(); ImGui::TextDisabled("%s",e.title_id.c_str());
     }
     if (ids.empty()) ImGui::TextDisabled("No favorites yet. Save titles from the catalogue.");
@@ -352,8 +337,6 @@ void Ui::render_details() {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, download_selected ? 3.0f : 1.0f);
     if (download_selected) ImGui::PushStyleColor(ImGuiCol_Border, accent(storage_.accent_theme()));
     if (ImGui::Button("DOWNLOAD PKG", ImVec2(220, 54))) start_download(e);
-    ImGui::SetItemDefaultFocus();
-    if (ImGui::IsItemFocused()) selected_detail_action_ = 0;
     if (download_selected) ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     ImGui::SameLine();
@@ -361,7 +344,6 @@ void Ui::render_details() {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, favorite_selected ? 3.0f : 1.0f);
     if (favorite_selected) ImGui::PushStyleColor(ImGuiCol_Border, accent(storage_.accent_theme()));
     if (ImGui::Button(storage_.is_favorite(e.id) ? "REMOVE FAVORITE" : "ADD FAVORITE", ImVec2(220, 54))) toggle_favorite();
-    if (ImGui::IsItemFocused()) selected_detail_action_ = 1;
     if (favorite_selected) ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     if (e.commercial || e.content_type != "homebrew") ImGui::TextColored(ImVec4(1, .35f, .3f, 1), "COMMERCIAL CONTENT — DOWNLOAD BLOCKED");
@@ -380,8 +362,6 @@ void Ui::render_settings() {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, theme_selected ? 3.0f : 1.0f);
     if (theme_selected) ImGui::PushStyleColor(ImGuiCol_Border, accent(storage_.accent_theme()));
     if (ImGui::Button("CHANGE THEME")) { selected_setting_ = 0; activate(); }
-    ImGui::SetItemDefaultFocus();
-    if (ImGui::IsItemFocused()) selected_setting_ = 0;
     if (theme_selected) ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     const bool ids_selected = selected_setting_ == 1;
@@ -391,7 +371,6 @@ void Ui::render_settings() {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, ids_selected ? 3.0f : 1.0f);
     if (ids_selected) ImGui::PushStyleColor(ImGuiCol_Border, accent(storage_.accent_theme()));
     if (ImGui::Checkbox("##showids", &show)) { selected_setting_ = 1; storage_.set_show_title_ids(show); storage_.save(); }
-    if (ImGui::IsItemFocused()) selected_setting_ = 1;
     if (ids_selected) ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     ImGui::TextDisabled("DPAD  SELECT   CROSS  CHANGE   CIRCLE  BACK");
@@ -400,14 +379,6 @@ void Ui::render_settings() {
 void Ui::render() {
     ImGui_ImplSDLRenderer2_NewFrame();
     ImGui_ImplSDL2_NewFrame();
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddKeyEvent(ImGuiKey_UpArrow, controller_up_);
-    io.AddKeyEvent(ImGuiKey_DownArrow, controller_down_);
-    io.AddKeyEvent(ImGuiKey_LeftArrow, controller_left_);
-    io.AddKeyEvent(ImGuiKey_RightArrow, controller_right_);
-    io.AddKeyEvent(ImGuiKey_PageUp, controller_page_up_);
-    io.AddKeyEvent(ImGuiKey_PageDown, controller_page_down_);
-    io.AddKeyEvent(ImGuiKey_Enter, controller_confirm_);
     ImGui::NewFrame();
     switch (page_) {
         case Page::Home: render_home(); break;
