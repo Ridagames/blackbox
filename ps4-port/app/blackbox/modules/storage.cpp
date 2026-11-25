@@ -27,7 +27,20 @@ bool Storage::load() {
 
     favorites_.clear();
     while (std::getline(file, line)) {
-        if (line.empty() || line.size() > 64) continue;
+        if (line == "@show_title_ids=0") {
+            show_title_ids_ = false;
+            continue;
+        }
+        if (line == "@show_title_ids=1") {
+            show_title_ids_ = true;
+            continue;
+        }
+        if (line.rfind("@accent_theme=", 0) == 0) {
+            const int value = std::atoi(line.c_str() + 14);
+            if (value >= 0 && value <= 2) accent_theme_ = value;
+            continue;
+        }
+        if (line.empty() || line.size() > 64 || line[0] == '@') continue;
         if (std::find(favorites_.begin(), favorites_.end(), line) == favorites_.end())
             favorites_.push_back(line);
     }
@@ -40,6 +53,8 @@ bool Storage::save() const {
     if (!file) return false;
 
     bool ok = std::fprintf(file, "%d\n", last_section_) > 0;
+    if (std::fprintf(file, "@accent_theme=%d\n", accent_theme_) < 0) ok = false;
+    if (std::fprintf(file, "@show_title_ids=%d\n", show_title_ids_ ? 1 : 0) < 0) ok = false;
     for (const auto& id : favorites_) {
         if (std::fprintf(file, "%s\n", id.c_str()) < 0) ok = false;
     }
