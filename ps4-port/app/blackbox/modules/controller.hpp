@@ -20,6 +20,7 @@ public:
     bool connected() const { return connected_; }
     int32_t last_error() const { return error_; }
     uint32_t raw_buttons() const { return raw_buttons_; }
+    uint32_t pressed_buttons() const { return pressed_buttons_; }
 
 private:
     void open();
@@ -43,6 +44,7 @@ private:
     int32_t error_ = 0;
     uint32_t down_ = 0;
     uint32_t raw_buttons_ = 0;
+    uint32_t pressed_buttons_ = 0;
     uint64_t retry_at_ = 0;
     uint64_t repeat_at_ = 0;
 
