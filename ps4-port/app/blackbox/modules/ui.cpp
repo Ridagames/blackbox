@@ -46,6 +46,10 @@ void Ui::ensure_catalog_loaded() {
 
 void Ui::move_selection(int delta) {
     if (delta == 0) return;
+    if (page_ == Page::Settings) {
+        selected_setting_ = (selected_setting_ + delta + 2) % 2;
+        return;
+    }
     if (page_ == Page::Home) {
         selected_ = (selected_ + delta + 3) % 3;
         return;
@@ -85,8 +89,14 @@ void Ui::activate() {
             scroll_offset_ = 0;
             page_ = Page::Favorites;
         } else {
+            selected_setting_ = 0;
             page_ = Page::Settings;
         }
+    } else if (page_ == Page::Settings) {
+        if (selected_setting_ == 0)
+            storage_.set_accent_theme(storage_.accent_theme() + 1);
+        else
+            storage_.set_show_title_ids(!storage_.show_title_ids());
     } else if (page_ == Page::Catalog && !catalog_.entries().empty()) {
         details_origin_ = Page::Catalog;
         page_ = Page::Details;
@@ -147,11 +157,19 @@ bool Ui::back() {
     return false;
 }
 
+SDL_Color Ui::accent_color() const {
+    switch (storage_.accent_theme()) {
+        case 1: return SDL_Color{80, 220, 160, 255};
+        case 2: return SDL_Color{190, 125, 255, 255};
+        default: return SDL_Color{0, 190, 255, 255};
+    }
+}
+
 void Ui::draw_header(const std::string& title, const std::string& subtitle) {
     SDL_Rect header{0, 0, 1920, 150};
     fill(renderer_, header, SDL_Color{17, 23, 36, 255});
     SDL_Rect accent{80, 72, 9, 50};
-    fill(renderer_, accent, SDL_Color{0, 190, 255, 255});
+    fill(renderer_, accent, accent_color());
     draw_text(renderer_, 115, 45, 7, title, SDL_Color{238, 245, 255, 255});
     draw_text(renderer_, 116, 112, 2, subtitle, SDL_Color{105, 145, 175, 255});
 }
@@ -209,8 +227,8 @@ void Ui::render_catalog() {
             const SDL_Color title_color = i == selected_item_
                 ? SDL_Color{245, 250, 255, 255} : SDL_Color{190, 205, 220, 255};
             draw_text(renderer_, 125, y + 17, 2, clipped(entries[i].title, 48), title_color);
-            draw_text(renderer_, 850, y + 17, 2, entries[i].title_id,
-                SDL_Color{105, 190, 220, 255});
+            if (storage_.show_title_ids())
+                draw_text(renderer_, 850, y + 17, 2, entries[i].title_id, accent_color());
             if (storage_.is_favorite(entries[i].id))
                 draw_text(renderer_, 1110, y + 17, 2, "*", SDL_Color{255, 205, 95, 255});
         }
@@ -268,8 +286,8 @@ void Ui::render_favorites() {
                 ? SDL_Color{28, 63, 86, 255} : SDL_Color{20, 29, 43, 255});
             draw_text(renderer_, 140, y + 17, 2, clipped(entry.title, 72),
                 i == selected_favorite_ ? SDL_Color{245, 250, 255, 255} : SDL_Color{190, 205, 220, 255});
-            draw_text(renderer_, 1500, y + 17, 2, entry.title_id,
-                SDL_Color{105, 190, 220, 255});
+            if (storage_.show_title_ids())
+                draw_text(renderer_, 1500, y + 17, 2, entry.title_id, accent_color());
         }
     }
     draw_footer("UP / DOWN SELECT     CROSS DETAILS     SQUARE REMOVE     CIRCLE BACK");
@@ -305,6 +323,32 @@ void Ui::render_details() {
     draw_footer("CIRCLE BACK");
 }
 
+void Ui::render_settings() {
+    draw_header("SETTINGS", "PREFERENCES ARE SAVED AUTOMATICALLY");
+    SDL_Rect panel{100, 205, 1720, 700};
+    fill(renderer_, panel, SDL_Color{15, 22, 34, 255});
+
+    const char* theme_names[] = {"CYAN", "MINT", "VIOLET"};
+    const char* labels[] = {"INTERFACE ACCENT", "SHOW TITLE IDS"};
+    const std::string values[] = {
+        theme_names[storage_.accent_theme()],
+        storage_.show_title_ids() ? "ON" : "OFF"
+    };
+    for (int i = 0; i < 2; ++i) {
+        const int y = 320 + i * 210;
+        SDL_Rect row{150, y, 1620, 150};
+        fill(renderer_, row, i == selected_setting_
+            ? SDL_Color{28, 63, 86, 255} : SDL_Color{20, 29, 43, 255});
+        SDL_Rect marker{150, y, 8, 150};
+        fill(renderer_, marker, i == selected_setting_ ? accent_color()
+            : SDL_Color{48, 66, 88, 255});
+        draw_text(renderer_, 195, y + 42, 4, labels[i],
+            SDL_Color{235, 242, 252, 255});
+        draw_text(renderer_, 1330, y + 52, 4, values[i], accent_color());
+    }
+    draw_footer("UP / DOWN SELECT     CROSS CHANGE VALUE     CIRCLE BACK");
+}
+
 void Ui::render_empty_page(const std::string& title, const std::string& message) {
     draw_header(title, "BLACKBOX PS4");
     SDL_Rect panel{100, 230, 1720, 600};
@@ -321,9 +365,7 @@ void Ui::render() {
         case Page::Catalog: render_catalog(); break;
         case Page::Details: render_details(); break;
         case Page::Favorites: render_favorites(); break;
-        case Page::Settings:
-            render_empty_page("SETTINGS", "SETTINGS PANEL IN DEVELOPMENT");
-            break;
+        case Page::Settings: render_settings(); break;
     }
     SDL_RenderPresent(renderer_);
 }
