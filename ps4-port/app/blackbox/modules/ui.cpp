@@ -28,6 +28,10 @@ Ui::Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage)
     if (base) SDL_free(base);
     data_path_ += "data/";
 
+    // Start directly in the catalogue; the home menu is intentionally bypassed.
+    page_ = Page::Catalog;
+    ensure_catalog_loaded();
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -150,7 +154,9 @@ bool Ui::toggle_favorite() {
 }
 bool Ui::back() {
     if (page_ == Page::Details) { page_ = details_origin_; return true; }
-    if (page_ != Page::Home) { page_ = Page::Home; return true; }
+    // Catalogue is now the entry screen, so CIRCLE must not return to Home.
+    if (page_ == Page::Catalog) return true;
+    if (page_ != Page::Home) { page_ = Page::Catalog; return true; }
     return false;
 }
 void Ui::start_download(const CatalogEntry& entry) {
