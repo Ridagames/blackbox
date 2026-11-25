@@ -1,7 +1,10 @@
 #include "ui.hpp"
 #include "font.hpp"
+#include "downloader.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <sys/stat.h>
+#include <cstdint>
 #include <vector>
 
 namespace blackbox {
@@ -19,8 +22,64 @@ void fill(SDL_Renderer* renderer, const SDL_Rect& rect, SDL_Color color) {
     SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
     SDL_RenderFillRect(renderer, &rect);
 }
+
 }
 
+Ui::Ui(SDL_Renderer* renderer, Storage& storage)
+    : renderer_(renderer), storage_(storage) {
+    char* base = SDL_GetBasePath();
+    if (base) {
+        data_path_ = base;
+        SDL_free(base);
+    } else {
+        data_path_ = "/app0/";
+    }
+    data_path_ += "data/";
+
+    auto load_bitmap = [this](const std::string& path) -> SDL_Texture* {
+        SDL_Surface* surface = SDL_LoadBMP(path.c_str());
+        if (!surface) return nullptr;
+        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, surface);
+        SDL_FreeSurface(surface);
+        return texture;
+    };
+    background_texture_ = load_bitmap(data_path_ + "ui-background.bmp");
+    logo_texture_ = load_bitmap(data_path_ + "ui-logo.bmp");
+}
+
+Ui::~Ui() {
+    if (cover_texture_) SDL_DestroyTexture(cover_texture_);
+    if (logo_texture_) SDL_DestroyTexture(logo_texture_);
+    if (background_texture_) SDL_DestroyTexture(background_texture_);
+}
+
+void Ui::draw_texture(SDL_Texture* texture, const SDL_Rect& destination, Uint8 alpha) {
+    if (!texture) return;
+    SDL_SetTextureAlphaMod(texture, alpha);
+    SDL_RenderCopy(renderer_, texture, nullptr, &destination);
+    SDL_SetTextureAlphaMod(texture, 255);
+}
+
+void Ui::load_cover(const CatalogEntry& entry) {
+    if (loaded_cover_id_ == entry.title_id) return;
+    if (cover_texture_) {
+        SDL_DestroyTexture(cover_texture_);
+        cover_texture_ = nullptr;
+    }
+    loaded_cover_id_ = entry.title_id;
+    std::string safe_id;
+    for (unsigned char ch : entry.title_id) {
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9') || ch == '_' || ch == '-')
+            safe_id.push_back(static_cast<char>(ch));
+    }
+    if (safe_id.empty()) return;
+    SDL_Surface* surface = SDL_LoadBMP((data_path_ + "covers/" + safe_id + ".bmp").c_str());
+    if (!surface) return;
+    cover_texture_ = SDL_CreateTextureFromSurface(renderer_, surface);
+    SDL_FreeSurface(surface);
+}
+ 
 std::vector<std::size_t> Ui::favorite_indices() const {
     std::vector<std::size_t> result;
     const auto& entries = catalog_.entries();
@@ -81,11 +140,55 @@ void Ui::activate() {
         const auto& entries = catalog_.entries();
         if (selected_item_ < entries.size()) {
             const CatalogEntry& entry = entries[selected_item_];
-            if (entry.commercial) {
+            if (entry.commercial || entry.content_type != "homebrew") {
                 download_message_ = "Jeux commerciaux détecté ! Téléchargement annulé.";
-            } else {
-                download_message_ = "Homebrew détecté : source autorisée requise.";
+                return;
             }
+            if (entry.download_url.empty() || entry.filename.empty()) {
+                download_message_ = "Source homebrew indisponible.";
+                return;
+            }
+
+            char* pref = SDL_GetPrefPath("Ridagames", "BlackBoxPS4");
+            if (!pref) {
+                download_message_ = "Impossible de créer le dossier de téléchargement.";
+                return;
+            }
+            const std::string directory = std::string(pref) + "downloads/";
+            SDL_free(pref);
+            mkdir(directory.c_str(), 0777);
+
+            std::string filename = entry.filename;
+            for (char& ch : filename) {
+                if (ch == '/' || ch == '\\\\' || ch == ':' || ch == '\\n' || ch == '\\r')
+                    ch = '_';
+            }
+            DownloadEntry request;
+            request.url = entry.download_url;
+            request.filename = filename;
+            request.output_path = directory + filename;
+            request.commercial = entry.commercial;
+            request.homebrew = entry.content_type == "homebrew";
+
+            download_message_ = "Connexion à la source homebrew...";
+            render();
+            const bool success = download_pkg(request, [this](const DownloadStatus& status) {
+                if (status.total > 0) {
+                    const unsigned int percent = static_cast<unsigned int>(
+                        (status.downloaded * 100ULL) / status.total);
+                    download_message_ = "Téléchargement : " + std::to_string(percent) + "%";
+                } else if (status.downloaded > 0) {
+                    download_message_ = "Téléchargement : " +
+                        std::to_string(status.downloaded / 1048576ULL) + " Mo";
+                } else if (!status.error.empty()) {
+                    download_message_ = status.error;
+                }
+                render();
+                SDL_PumpEvents();
+            });
+            download_message_ = success
+                ? "Téléchargement terminé : " + filename
+                : "Échec du téléchargement : source ou réseau.";
         }
     } else if (page_ == Page::Home) {
         if (selected_ == 0) {
@@ -176,12 +279,15 @@ SDL_Color Ui::accent_color() const {
 }
 
 void Ui::draw_header(const std::string& title, const std::string& subtitle) {
-    SDL_Rect header{0, 0, 1920, 150};
-    fill(renderer_, header, SDL_Color{17, 23, 36, 255});
-    SDL_Rect accent{80, 72, 9, 50};
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    SDL_Rect header{0, 0, 1920, 160};
+    fill(renderer_, header, SDL_Color{7, 12, 23, 225});
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_NONE);
+    if (logo_texture_) draw_texture(logo_texture_, SDL_Rect{70, 18, 310, 124});
+    SDL_Rect accent{410, 48, 7, 70};
     fill(renderer_, accent, accent_color());
-    draw_text(renderer_, 115, 45, 7, title, SDL_Color{238, 245, 255, 255});
-    draw_text(renderer_, 116, 112, 2, subtitle, SDL_Color{105, 145, 175, 255});
+    draw_text(renderer_, 445, 42, 6, title, SDL_Color{238, 245, 255, 255});
+    draw_text(renderer_, 447, 100, 2, subtitle, SDL_Color{125, 165, 195, 255});
 }
 
 void Ui::draw_footer(const std::string& hint) {
@@ -312,35 +418,44 @@ void Ui::render_details() {
     const auto& entry = entries[selected_item_];
     draw_header("ENTRY DETAILS", "PS4 CATALOG METADATA");
     SDL_Rect panel{100, 205, 1720, 700};
-    fill(renderer_, panel, SDL_Color{15, 22, 34, 255});
-    draw_text(renderer_, 150, 270, 5, clipped(entry.title, 48),
+    fill(renderer_, panel, SDL_Color{11, 18, 31, 238});
+    load_cover(entry);
+    if (cover_texture_)
+        draw_texture(cover_texture_, SDL_Rect{150, 310, 330, 330});
+    else {
+        SDL_Rect cover_fallback{150, 310, 330, 330};
+        fill(renderer_, cover_fallback, SDL_Color{24, 39, 57, 255});
+        draw_text(renderer_, 205, 450, 3, "NO COVER", SDL_Color{120, 155, 180, 255});
+    }
+    draw_text(renderer_, 535, 265, 5, clipped(entry.title, 48),
         SDL_Color{240, 246, 255, 255});
-    draw_text(renderer_, 150, 390, 3, "TITLE ID: " + entry.title_id,
+    draw_text(renderer_, 535, 365, 3, "TITLE ID: " + entry.title_id,
         SDL_Color{110, 190, 220, 255});
-    draw_text(renderer_, 150, 455, 3, "REGION: " + value_or(entry.region, "N/A"),
+    draw_text(renderer_, 535, 430, 3, "REGION: " + value_or(entry.region, "N/A"),
         SDL_Color{185, 200, 218, 255});
-    draw_text(renderer_, 150, 520, 3, "VERSION: " + value_or(entry.version, "N/A"),
+    draw_text(renderer_, 535, 495, 3, "VERSION: " + value_or(entry.version, "N/A"),
         SDL_Color{185, 200, 218, 255});
-    draw_text(renderer_, 150, 585, 3, "PUBLISHER: " + clipped(value_or(entry.publisher, "N/A"), 45),
+    draw_text(renderer_, 535, 560, 3, "PUBLISHER: " + clipped(value_or(entry.publisher, "N/A"), 45),
         SDL_Color{185, 200, 218, 255});
-    draw_text(renderer_, 150, 650, 3, "RELEASE: " + value_or(entry.release_date, "N/A"),
+    draw_text(renderer_, 535, 625, 3, "RELEASE: " + value_or(entry.release_date, "N/A"),
         SDL_Color{185, 200, 218, 255});
-    draw_text(renderer_, 150, 715, 3, "GAME ID: " + clipped(entry.game_id, 55),
+    draw_text(renderer_, 535, 690, 3, "GAME ID: " + clipped(entry.game_id, 55),
         SDL_Color{185, 200, 218, 255});
-    draw_text(renderer_, 150, 805, 2,
+    draw_text(renderer_, 535, 755, 2,
+
         storage_.is_favorite(entry.id) ? "SQUARE: REMOVE FROM FAVORITES" : "SQUARE: ADD TO FAVORITES",
         SDL_Color{255, 205, 95, 255});
 
     // The download action is visible on every game details page.
-    SDL_Rect download_button{150, 850, 390, 58};
+    SDL_Rect download_button{150, 820, 390, 58};
     fill(renderer_, download_button, SDL_Color{0, 105, 155, 255});
-    draw_text(renderer_, 185, 870, 3, "DOWNLOAD", SDL_Color{245, 250, 255, 255});
+    draw_text(renderer_, 185, 840, 3, "DOWNLOAD", SDL_Color{245, 250, 255, 255});
     if (!download_message_.empty()) {
         const bool blocked = entry.commercial;
-        draw_text(renderer_, 580, 870, 2, clipped(download_message_, 76),
+        draw_text(renderer_, 580, 840, 2, clipped(download_message_, 76),
             blocked ? SDL_Color{255, 145, 130, 255} : SDL_Color{255, 205, 95, 255});
     }
-    draw_footer("CROSS DOWNLOAD / CHECK     SQUARE FAVORITE     CIRCLE BACK");
+    draw_footer("CROSS DOWNLOAD     SQUARE FAVORITE     CIRCLE BACK");
 }
 
 void Ui::render_settings() {
@@ -380,6 +495,11 @@ void Ui::render_empty_page(const std::string& title, const std::string& message)
 void Ui::render() {
     SDL_SetRenderDrawColor(renderer_, 9, 12, 20, 255);
     SDL_RenderClear(renderer_);
+    if (background_texture_)
+        draw_texture(background_texture_, SDL_Rect{0, 0, 1920, 1080});
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    fill(renderer_, SDL_Rect{0, 0, 1920, 1080}, SDL_Color{5, 9, 17, 178});
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_NONE);
     switch (page_) {
         case Page::Home: render_home(); break;
         case Page::Catalog: render_catalog(); break;
