@@ -36,6 +36,13 @@ bool read_string(const std::string& object, const char* key, std::string& out) {
     }
     return false;
 }
+bool is_commercial_title_id(const std::string& id) {
+    const char* prefixes[] = {"CUSA", "PPSA", "PCAS", "PLAS", "NPEA", "NPUB", "NPUA"};
+    for (const char* prefix : prefixes) {
+        if (id.compare(0, 4, prefix) == 0) return true;
+    }
+    return false;
+}
 bool read_boolean_false(const std::string& object, const char* key) {
     const std::string marker = std::string("\"") + key + "\"";
     std::size_t pos = object.find(marker);
@@ -129,8 +136,8 @@ bool Catalog::load(const std::string& path) {
         // can make an entry eligible for the authorized-download path.
         std::string content_type;
         read_string(object, "contentType", content_type);
-        entry.commercial = !(read_boolean_false(object, "commercial") &&
-                             content_type == "homebrew");
+        entry.commercial = is_commercial_title_id(entry.title_id) ||
+            !(read_boolean_false(object, "commercial") && content_type == "homebrew");
         if (!entry.id.empty() && !entry.title_id.empty() && !entry.title.empty())
             entries_.push_back(entry);
     }
