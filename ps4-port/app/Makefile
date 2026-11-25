@@ -61,13 +61,10 @@ eboot.bin: $(OBJS)
 	$(TOOLCHAIN)/bin/$(CDIR)/create-fself -in=$(INTDIR)/$(PROJDIR).elf -out=$(INTDIR)/$(PROJDIR).oelf --eboot "eboot.bin" --paid 0x3800000000000011
 
 pkg.gp4: eboot.bin sce_sys/about/right.sprx sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx data/catalog.json data/ui-background.bmp data/ui-logo.bmp data/.artwork-ready
-	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files $(filter-out data/.artwork-ready,$^) `find data/covers -type f | sort`
-	python3 ../tools/fix_gp4_dirs.py $@
-	@echo '=== GENERATED GP4 PROJECT ==='
-	@sed -n '1,240p' $@
-	@echo '=== GP4 INPUT FILES ==='
-	@for file in $(filter-out data/.artwork-ready,$^); do test -s "$$file" || { echo "MISSING: $$file"; exit 1; }; done
-	@find data/covers -type f -name '*.bmp' -exec test -s {} \;
+	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files eboot.bin
+	python3 ../tools/populate_gp4.py $@
+	@echo '=== GENERATED GP4 SUMMARY ==='
+	@python3 -c "import xml.etree.ElementTree as E; r=E.parse('$@').getroot(); print('GP4 file entries:',len(r.find('files').findall('file')))"
 
 $(CONTENT_ID).pkg: pkg.gp4
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core pkg_build $< .
