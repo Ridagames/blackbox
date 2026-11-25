@@ -11,6 +11,7 @@
 #include <orbis/Pad.h>
 #include <orbis/UserService.h>
 #include <cstring>
+#include <time.h>
 
 namespace blackbox {
 namespace {
@@ -21,7 +22,10 @@ constexpr uint8_t kStickLow = 64;
 constexpr uint8_t kStickHigh = 192;
 
 uint64_t input_now() {
-    return static_cast<uint64_t>(SDL_GetTicks());
+    struct timespec ts{};
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+    return static_cast<uint64_t>(ts.tv_sec) * 1000ULL +
+           static_cast<uint64_t>(ts.tv_nsec) / 1000000ULL;
 }
 }
 
