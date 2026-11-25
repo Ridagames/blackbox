@@ -43,5 +43,6 @@ private:
     std::size_t selected_item_ = 0;
     std::size_t selected_favorite_ = 0;
     std::size_t scroll_offset_ = 0;
+    std::string download_message_;
 };
 }
