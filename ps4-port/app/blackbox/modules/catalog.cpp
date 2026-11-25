@@ -36,6 +36,17 @@ bool read_string(const std::string& object, const char* key, std::string& out) {
     }
     return false;
 }
+bool read_boolean_false(const std::string& object, const char* key) {
+    const std::string marker = std::string("\\\"") + key + "\\\"";
+    std::size_t pos = object.find(marker);
+    if (pos == std::string::npos) return false;
+    pos = object.find(':', pos + marker.size());
+    if (pos == std::string::npos) return false;
+    ++pos;
+    while (pos < object.size() && (object[pos] == ' ' || object[pos] == '\\n' ||
+           object[pos] == '\\r' || object[pos] == '\\t')) ++pos;
+    return object.compare(pos, 5, "false") == 0;
+}
 std::uint64_t read_number(const std::string& object, const char* key) {
     const std::string marker = std::string("\"") + key + "\"";
     std::size_t pos = object.find(marker);
@@ -111,6 +122,12 @@ bool Catalog::load(const std::string& path) {
         read_string(object, "cover", entry.cover);
         read_string(object, "hero", entry.hero);
         entry.size_bytes = read_number(object, "sizeBytes");
+        // Unknown entries stay blocked. Only an explicit, curated homebrew marker
+        // can make an entry eligible for the authorized-download path.
+        std::string content_type;
+        read_string(object, "contentType", content_type);
+        entry.commercial = !(read_boolean_false(object, "commercial") ||
+                             content_type == "homebrew");
         if (!entry.id.empty() && !entry.title_id.empty() && !entry.title.empty())
             entries_.push_back(entry);
     }
