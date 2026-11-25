@@ -13,6 +13,7 @@ public:
     Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage);
     ~Ui();
     void process_event(const SDL_Event& event);
+    void controller_input(int navigation, bool confirm, bool back, bool favorite);
     void render();
     void move_selection(int delta);
     void activate();
