@@ -61,8 +61,8 @@ eboot.bin: $(OBJS)
 	$(TOOLCHAIN)/bin/$(CDIR)/create-fself -in=$(INTDIR)/$(PROJDIR).elf -out=$(INTDIR)/$(PROJDIR).oelf --eboot "eboot.bin" --paid 0x3800000000000011
 
 pkg.gp4: eboot.bin sce_sys/about/right.sprx sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx data/catalog.json data/ui-background.bmp data/ui-logo.bmp data/.artwork-ready
-	ARTWORK_FILES="$(find data/covers -type f | sort)"; \
-	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files $(filter-out data/.artwork-ready,$^) $ARTWORK_FILES
+	ARTWORK_FILES="$$(find data/covers -type f | sort)"; \\
+	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files $(filter-out data/.artwork-ready,$^) $$ARTWORK_FILES
 	python3 ../tools/fix_gp4_dirs.py $@
 	@echo '=== GENERATED GP4 PROJECT ==='
 	@sed -n '1,240p' $@
