@@ -37,14 +37,14 @@ bool read_string(const std::string& object, const char* key, std::string& out) {
     return false;
 }
 bool read_boolean_false(const std::string& object, const char* key) {
-    const std::string marker = std::string("\\\"") + key + "\\\"";
+    const std::string marker = std::string("\"") + key + "\"";
     std::size_t pos = object.find(marker);
     if (pos == std::string::npos) return false;
     pos = object.find(':', pos + marker.size());
     if (pos == std::string::npos) return false;
     ++pos;
-    while (pos < object.size() && (object[pos] == ' ' || object[pos] == '\\n' ||
-           object[pos] == '\\r' || object[pos] == '\\t')) ++pos;
+    while (pos < object.size() && (object[pos] == ' ' || object[pos] == '\n' ||
+           object[pos] == '\r' || object[pos] == '\t')) ++pos;
     return object.compare(pos, 5, "false") == 0;
 }
 std::uint64_t read_number(const std::string& object, const char* key) {
