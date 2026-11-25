@@ -95,7 +95,7 @@ void Controller::poll() {
             retry(now);
         } else {
             OrbisPadData pad{};
-            const int32_t rc = scePadReadState(pad_handle_, &pad);
+            const int32_t rc = scePadRead(pad_handle_, &pad, 1);
             if (rc != 0) {
                 error_ = rc;
                 connected_ = false;
@@ -116,6 +116,7 @@ void Controller::poll() {
             } else {
                 connected_ = true;
                 error_ = 0;
+                raw_buttons_ = pad.buttons;
                 retry_at_ = 0;
                 uint32_t held = pad.buttons;
                 if (pad.leftStick.x < kStickLow) held |= ORBIS_PAD_BUTTON_LEFT;
