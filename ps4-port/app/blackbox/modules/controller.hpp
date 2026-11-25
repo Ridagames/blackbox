@@ -14,6 +14,7 @@ public:
     void poll();
 
     bool confirm_pressed() const { return confirm_; }
+    bool favorite_pressed() const { return favorite_; }
     bool exit_requested() const { return exit_; }
     int navigation_delta() const { return navigation_delta_; }
     bool connected() const { return connected_; }
@@ -37,9 +38,11 @@ private:
     uint64_t repeat_at_ = 0;
 
     bool keyboard_confirm_ = false;
+    bool keyboard_favorite_ = false;
     bool keyboard_exit_ = false;
     int keyboard_navigation_ = 0;
     bool confirm_ = false;
+    bool favorite_ = false;
     bool exit_ = false;
     int navigation_delta_ = 0;
 };
