@@ -184,6 +184,7 @@ void Controller::poll() {
             sdl_repeat_at_ = now + kRepeatIntervalMs;
         }
         sdl_down_ = held;
+        pressed_buttons_ |= pressed;
         if (button(SDL_CONTROLLER_BUTTON_A) && !sdl_confirm_down_) confirm_ = true;
         sdl_confirm_down_ = button(SDL_CONTROLLER_BUTTON_A);
         if (button(SDL_CONTROLLER_BUTTON_X) && !sdl_favorite_down_) favorite_ = true;
