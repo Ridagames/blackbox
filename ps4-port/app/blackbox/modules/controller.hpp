@@ -19,6 +19,7 @@ public:
     int navigation_delta() const { return navigation_delta_; }
     bool connected() const { return connected_; }
     int32_t last_error() const { return error_; }
+    uint32_t raw_buttons() const { return raw_buttons_; }
 
 private:
     void open();
@@ -41,6 +42,7 @@ private:
     int failures_ = 0;
     int32_t error_ = 0;
     uint32_t down_ = 0;
+    uint32_t raw_buttons_ = 0;
     uint64_t retry_at_ = 0;
     uint64_t repeat_at_ = 0;
 
