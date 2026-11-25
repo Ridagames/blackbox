@@ -14,6 +14,7 @@ public:
     ~Ui();
     void process_event(const SDL_Event& event);
     void render();
+    void set_controller_debug(bool connected, int32_t error, uint32_t buttons, int navigation);
     void move_selection(int delta);
     void activate();
     bool toggle_favorite();
@@ -32,6 +33,10 @@ private:
     void render_settings();
     void start_download(const CatalogEntry& entry);
 
+    bool controller_connected_ = false;
+    int32_t controller_error_ = 0;
+    uint32_t controller_buttons_ = 0;
+    int controller_navigation_ = 0;
     SDL_Window* window_;
     SDL_Renderer* renderer_;
     Storage& storage_;
