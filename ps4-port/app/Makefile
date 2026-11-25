@@ -60,7 +60,7 @@ eboot.bin: $(OBJS)
 	$(TOOLCHAIN)/bin/$(CDIR)/create-fself -in=$(INTDIR)/$(PROJDIR).elf -out=$(INTDIR)/$(PROJDIR).oelf --eboot "eboot.bin" --paid 0x3800000000000011
 
 pkg.gp4: eboot.bin sce_sys/about/right.sprx sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx data/catalog.json data/ui-background.bmp data/ui-logo.bmp data/.artwork-ready
-	PACKAGE_FILES="$(filter-out data/.artwork-ready,$^)"; ARTWORK_FILES="$(find data/covers -type f -name '*.bmp' | sort)"; \
+	PACKAGE_FILES="$(filter-out data/.artwork-ready,$^)"; ARTWORK_FILES="$$(find data/covers -type f -name "*.bmp" | sort)"; \
 	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files "$PACKAGE_FILES $ARTWORK_FILES"
 	python3 -c 'import xml.etree.ElementTree as E; p=E.parse("$@"); root=p.getroot().find("rootdir"); files=p.getroot().find("files"); exec("for f in files.findall(\"file\"):\n parts=f.get(\"targ_path\").split(\"/\")[:-1]\n node=root\n for part in parts:\n  child=next((d for d in node.findall(\"dir\") if d.get(\"targ_name\")==part),None)\n  if child is None: child=E.SubElement(node,\"dir\",{\"targ_name\":part})\n  node=child"); p.write("$@",encoding="utf-8",xml_declaration=True)'
 	@echo '=== GENERATED GP4 PROJECT ==='
