@@ -90,6 +90,7 @@ void Controller::handle(const SDL_Event& event) {
 void Controller::poll() {
     confirm_ = favorite_ = exit_ = false;
     navigation_delta_ = 0;
+    pressed_buttons_ = 0;
     const uint64_t now = input_now();
 
     if (started_ && now >= retry_at_) {
@@ -143,6 +144,7 @@ void Controller::poll() {
                     down_ = held;
                 }
 
+                pressed_buttons_ = pressed;
                 if (pressed & ORBIS_PAD_BUTTON_CROSS) confirm_ = true;
                 if (pressed & ORBIS_PAD_BUTTON_SQUARE) favorite_ = true;
                 if (pressed & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_OPTIONS))
