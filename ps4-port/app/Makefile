@@ -3,7 +3,7 @@ VERSION := 0.1.0
 TITLE_ID := RGSB00001
 CONTENT_ID := IV0000-RGSB00001_00-BLACKBOXPS400001
 
-LIBS := -lc -lkernel -lc++ -lSceUserService -lSceVideoOut -lSceAudioOut -lScePad -lSceSysmodule -lSDL2
+LIBS := -lc -lkernel -lc++ -lSceUserService -lSceVideoOut -lSceAudioOut -lScePad -lSceSysmodule -lSceNet -lSceSsl -lSceHttp -lSDL2
 TOOLCHAIN := $(OO_PS4_TOOLCHAIN)
 PROJDIR := blackbox
 INTDIR := $(PROJDIR)/x64/Release
@@ -26,12 +26,14 @@ endif
 all: $(CONTENT_ID).pkg
 
 prepare:
-	mkdir -p $(INTDIR) sce_sys/about sce_module data
+	mkdir -p $(INTDIR) sce_sys/about sce_module data/covers
 	test -s data/catalog.json
 	cp "$(TOOLCHAIN)/samples/SDL2/sce_sys/about/right.sprx" sce_sys/about/right.sprx
 	cp "$(TOOLCHAIN)/src/modules/libc.prx" sce_module/libc.prx
 	cp "$(TOOLCHAIN)/src/modules/libSceFios2.prx" sce_module/libSceFios2.prx
 	python3 -c "from PIL import Image; im=Image.open('../../assets/blackbox-logo.png').convert('RGB'); im=im.resize((512,512)); im.save('sce_sys/icon0.png',format='PNG',optimize=True)"
+	python3 ../tools/prepare_artwork.py --catalog data/catalog.json --assets ../../assets --output data
+	touch data/.artwork-ready
 
 sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx: | prepare
 	@test -s "$@"
@@ -57,8 +59,9 @@ eboot.bin: $(OBJS)
 	$(LD) $(OBJS) -o $(INTDIR)/$(PROJDIR).elf $(LDFLAGS)
 	$(TOOLCHAIN)/bin/$(CDIR)/create-fself -in=$(INTDIR)/$(PROJDIR).elf -out=$(INTDIR)/$(PROJDIR).oelf --eboot "eboot.bin" --paid 0x3800000000000011
 
-pkg.gp4: eboot.bin sce_sys/about/right.sprx sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx data/catalog.json
-	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files "$^"
+pkg.gp4: eboot.bin sce_sys/about/right.sprx sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx data/catalog.json data/ui-background.bmp data/ui-logo.bmp data/.artwork-ready
+	PACKAGE_FILES="$(filter-out data/.artwork-ready,$^)"; ARTWORK_FILES="$(find data/covers -type f -name '*.bmp' | sort)"; \
+	$(TOOLCHAIN)/bin/$(CDIR)/create-gp4 -out $@ --content-id=$(CONTENT_ID) --files "$PACKAGE_FILES $ARTWORK_FILES"
 	python3 -c 'import xml.etree.ElementTree as E; p=E.parse("$@"); root=p.getroot().find("rootdir"); files=p.getroot().find("files"); exec("for f in files.findall(\"file\"):\n parts=f.get(\"targ_path\").split(\"/\")[:-1]\n node=root\n for part in parts:\n  child=next((d for d in node.findall(\"dir\") if d.get(\"targ_name\")==part),None)\n  if child is None: child=E.SubElement(node,\"dir\",{\"targ_name\":part})\n  node=child"); p.write("$@",encoding="utf-8",xml_declaration=True)'
 	@echo '=== GENERATED GP4 PROJECT ==='
 	@sed -n '1,240p' $@
@@ -69,4 +72,4 @@ $(CONTENT_ID).pkg: pkg.gp4
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core pkg_build $< .
 
 clean:
-	rm -rf $(PROJDIR)/x64 sce_sys sce_module eboot.bin pkg.gp4 $(CONTENT_ID).pkg
+	rm -rf $(PROJDIR)/x64 sce_sys sce_module data/covers data/ui-background.bmp data/ui-logo.bmp data/.artwork-ready eboot.bin pkg.gp4 $(CONTENT_ID).pkg
