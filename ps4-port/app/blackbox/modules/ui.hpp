@@ -2,6 +2,7 @@
 #include <SDL2/SDL.h>
 #include "catalog.hpp"
 #include "storage.hpp"
+#include <string>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -9,7 +10,8 @@
 namespace blackbox {
 class Ui {
 public:
-    Ui(SDL_Renderer* renderer, Storage& storage) : renderer_(renderer), storage_(storage) {}
+    Ui(SDL_Renderer* renderer, Storage& storage);
+    ~Ui();
     void render();
     void move_selection(int delta);
     void activate();
@@ -21,6 +23,8 @@ private:
     enum class Page { Home, Catalog, Details, Favorites, Settings };
 
     void ensure_catalog_loaded();
+    void load_cover(const CatalogEntry& entry);
+    void draw_texture(SDL_Texture* texture, const SDL_Rect& destination, Uint8 alpha = 255);
     std::vector<std::size_t> favorite_indices() const;
     SDL_Color accent_color() const;
     void render_home();
@@ -44,5 +48,10 @@ private:
     std::size_t selected_favorite_ = 0;
     std::size_t scroll_offset_ = 0;
     std::string download_message_;
+    std::string data_path_;
+    std::string loaded_cover_id_;
+    SDL_Texture* background_texture_ = nullptr;
+    SDL_Texture* logo_texture_ = nullptr;
+    SDL_Texture* cover_texture_ = nullptr;
 };
 }
