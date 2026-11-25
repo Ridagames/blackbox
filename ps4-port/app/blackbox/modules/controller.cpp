@@ -158,7 +158,7 @@ void Controller::poll() {
 
     // SDL fallback: used when the native scePad path is unavailable.
     // It supports DS4 mappings exposed by SDL without changing the native path.
-    if (!connected_ && sdl_controller_ && SDL_GameControllerGetAttached(sdl_controller_)) {
+    if (sdl_controller_ && SDL_GameControllerGetAttached(sdl_controller_)) {
         SDL_GameControllerUpdate();
         const auto button = [this](SDL_GameControllerButton b) {
             return SDL_GameControllerGetButton(sdl_controller_, b) != 0;
@@ -186,10 +186,13 @@ void Controller::poll() {
         if ((button(SDL_CONTROLLER_BUTTON_B) && !sdl_exit_down_) ||
             (button(SDL_CONTROLLER_BUTTON_START) && !sdl_exit_down_)) exit_ = true;
         sdl_exit_down_ = button(SDL_CONTROLLER_BUTTON_B) || button(SDL_CONTROLLER_BUTTON_START);
-        if (pressed & ORBIS_PAD_BUTTON_UP) navigation_delta_ = -6;
-        else if (pressed & ORBIS_PAD_BUTTON_DOWN) navigation_delta_ = 6;
-        else if (pressed & ORBIS_PAD_BUTTON_LEFT) navigation_delta_ = -1;
-        else if (pressed & ORBIS_PAD_BUTTON_RIGHT) navigation_delta_ = 1;
+        // Keep native scePad navigation when present; SDL supplies a second input path.
+        if (navigation_delta_ == 0) {
+            if (pressed & ORBIS_PAD_BUTTON_UP) navigation_delta_ = -6;
+            else if (pressed & ORBIS_PAD_BUTTON_DOWN) navigation_delta_ = 6;
+            else if (pressed & ORBIS_PAD_BUTTON_LEFT) navigation_delta_ = -1;
+            else if (pressed & ORBIS_PAD_BUTTON_RIGHT) navigation_delta_ = 1;
+        }
     } else {
         sdl_down_ = 0;
         sdl_confirm_down_ = sdl_favorite_down_ = sdl_exit_down_ = false;
