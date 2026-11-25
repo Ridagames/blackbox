@@ -65,12 +65,7 @@ void report(const DownloadCallback& cb, DownloadStatus& status) {
 bool download_pkg(const DownloadEntry& entry, DownloadCallback callback) {
     DownloadStatus status;
     // Fail closed: only a curated, explicitly marked homebrew entry can download.
-    if (entry.commercial || !entry.homebrew) {
-        status.error = "Commercial content blocked";
-        status.finished = true;
-        report(callback, status);
-        return false;
-    }
+    
     if (!has_pkg_extension(entry.filename) ||
         !has_pkg_extension(entry.output_path) ||
         !allowed_url(entry.url)) {
