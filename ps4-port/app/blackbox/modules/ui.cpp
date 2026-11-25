@@ -32,6 +32,9 @@ Ui::Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage)
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    // The PS4 controller is polled by the native scePad backend in Controller.
+    // Tell Dear ImGui that gamepad navigation events are supplied by our app.
+    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
