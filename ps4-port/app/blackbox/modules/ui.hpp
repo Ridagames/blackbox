@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace blackbox {
 class Ui {
@@ -52,5 +53,6 @@ private:
     SDL_Texture* background_texture_ = nullptr;
     SDL_Texture* logo_texture_ = nullptr;
     SDL_Texture* cover_texture_ = nullptr;
+    std::unordered_map<std::string, SDL_Texture*> cover_cache_;
 };
 }
