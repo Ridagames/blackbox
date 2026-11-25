@@ -80,8 +80,16 @@ Ui::~Ui() {
     for (auto& item : cover_cache_) if (item.second) SDL_DestroyTexture(item.second);
 }
 void Ui::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
-void Ui::controller_input(int, bool, bool, bool) {
-    // Native controller actions are handled once in main.cpp.
+void Ui::controller_input(int navigation, bool confirm, bool, bool) {
+    // One input path: native/SDL controller commands become ImGui navigation keys.
+    // ImGui then owns focus, selection and activation on every page.
+    controller_up_ = navigation == -6;
+    controller_down_ = navigation == 6;
+    controller_left_ = navigation == -1;
+    controller_right_ = navigation == 1;
+    controller_page_up_ = navigation <= -18;
+    controller_page_down_ = navigation >= 18;
+    controller_confirm_ = confirm;
 }
 
 SDL_Texture* Ui::load_cover(const CatalogEntry& entry) {
@@ -216,6 +224,7 @@ void Ui::render_home() {
         ImGui::SetWindowFontScale(1.35f); ImGui::Text("%s",labels[i]); ImGui::SetWindowFontScale(1.0f);
         ImGui::TextDisabled("%s",desc[i]);
         if (ImGui::Button("OPEN",ImVec2(130,38))) { selected_=i; activate(); }
+        if (i == 0) ImGui::SetItemDefaultFocus();
         ImGui::EndChild(); ImGui::PopID();
     }
     ImGui::SetCursorPosY(ImGui::GetWindowHeight()-55); ImGui::Separator(); ImGui::TextDisabled("CROSS  OPEN     DPAD  NAVIGATE     CIRCLE  BACK");
@@ -260,6 +269,7 @@ void Ui::render_catalog() {
         bool clicked=false;
         if(tex) clicked=ImGui::ImageButton("cover",(ImTextureID)(intptr_t)tex,ImVec2(cardW,cardW*1.12f));
         else clicked=ImGui::Button("NO COVER",ImVec2(cardW,cardW*1.12f));
+        if (pos == first) ImGui::SetItemDefaultFocus();
         if(selected) ImGui::PopStyleColor(); ImGui::PopStyleVar();
         if(clicked){selected_item_=i;details_origin_=Page::Catalog;page_=Page::Details;}
         const std::string short_title=clipped_title(e.title,cardW);
@@ -284,6 +294,7 @@ void Ui::render_favorites() {
     for (std::size_t n=0;n<ids.size();++n) {
         const auto& e=catalog_.entries()[ids[n]];
         if (ImGui::Selectable(e.title.c_str(),n==selected_favorite_,0,ImVec2(0,58))) { selected_favorite_=n; selected_item_=ids[n]; details_origin_=Page::Favorites; page_=Page::Details; }
+        if (n == 0) ImGui::SetItemDefaultFocus();
         ImGui::SameLine(); ImGui::TextDisabled("%s",e.title_id.c_str());
     }
     if (ids.empty()) ImGui::TextDisabled("No favorites yet. Save titles from the catalogue.");
@@ -306,6 +317,7 @@ void Ui::render_details() {
     ImGui::Text("Publisher: %s",e.publisher.c_str()); ImGui::Text("Release: %s",e.release_date.c_str());
     ImGui::Text("Game ID: %s",e.game_id.c_str()); ImGui::Spacing();
     if (ImGui::Button("DOWNLOAD PKG",ImVec2(220,54))) start_download(e);
+    ImGui::SetItemDefaultFocus();
     ImGui::SameLine(); if (ImGui::Button(storage_.is_favorite(e.id)?"REMOVE FAVORITE":"ADD FAVORITE",ImVec2(220,54))) toggle_favorite();
     if (e.commercial || e.content_type!="homebrew") ImGui::TextColored(ImVec4(1,.35f,.3f,1),"COMMERCIAL CONTENT — DOWNLOAD BLOCKED");
     if (!download_message_.empty()) ImGui::TextWrapped("%s",download_message_.c_str());
@@ -316,11 +328,24 @@ void Ui::render_settings() {
     ImGui::Begin("SETTINGS",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize);
     ImGui::TextColored(accent(storage_.accent_theme()),"SETTINGS"); ImGui::Separator();
     ImGui::Text("Interface accent"); ImGui::SameLine(360); if (ImGui::Button("CHANGE THEME")) { selected_setting_=0; activate(); }
+    ImGui::SetItemDefaultFocus();
     ImGui::Text("Show title IDs"); ImGui::SameLine(360); bool show=storage_.show_title_ids(); if (ImGui::Checkbox("##showids",&show)) { storage_.set_show_title_ids(show); selected_setting_=1; }
     ImGui::End();
 }
 void Ui::render() {
-    ImGui_ImplSDLRenderer2_NewFrame(); ImGui_ImplSDL2_NewFrame(); ImGui::NewFrame();
+    ImGui_ImplSDLRenderer2_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGuiIO& io = ImGui::GetIO();
+    // Translate the controller's one-frame commands after the SDL backend update.
+    // The following frame sends key-up events, allowing clean repeated presses.
+    io.AddKeyEvent(ImGuiKey_UpArrow, controller_up_);
+    io.AddKeyEvent(ImGuiKey_DownArrow, controller_down_);
+    io.AddKeyEvent(ImGuiKey_LeftArrow, controller_left_);
+    io.AddKeyEvent(ImGuiKey_RightArrow, controller_right_);
+    io.AddKeyEvent(ImGuiKey_PageUp, controller_page_up_);
+    io.AddKeyEvent(ImGuiKey_PageDown, controller_page_down_);
+    io.AddKeyEvent(ImGuiKey_Enter, controller_confirm_);
+    ImGui::NewFrame();
     switch(page_) { case Page::Home:render_home();break; case Page::Catalog:render_catalog();break; case Page::Details:render_details();break; case Page::Favorites:render_favorites();break; case Page::Settings:render_settings();break; }
     ImGui::Render();
     SDL_SetRenderDrawColor(renderer_,5,9,17,255); SDL_RenderClear(renderer_);
