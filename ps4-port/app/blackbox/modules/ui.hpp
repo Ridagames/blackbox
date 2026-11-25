@@ -45,7 +45,7 @@ private:
     std::size_t selected_item_ = 0;
     std::size_t selected_favorite_ = 0;
     std::size_t scroll_offset_ = 0;
-    std::string download_message_;
+    std::string download_message_;\n    char search_query_[128] = {};
     std::string data_path_;
     std::unordered_map<std::string, SDL_Texture*> cover_cache_;
 };
