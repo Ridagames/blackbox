@@ -281,6 +281,17 @@ void Ui::render_catalog() {
     ImGui::SetNextItemWidth(520.0f);
     ImGui::InputTextWithHint("##catalog-search","Search a game or title ID...",search_query_,sizeof(search_query_));
     ImGui::SameLine(); if(ImGui::Button("CLEAR",ImVec2(90,34))) search_query_[0]='\0';
+    // Put the input diagnostic INSIDE the catalogue window so it cannot be
+    // hidden behind another ImGui window or lost due to window ordering.
+    ImGui::Separator();
+    ImGui::TextColored(controller_connected_ ? ImVec4(0.20f,1.0f,0.35f,1.0f) : ImVec4(1.0f,0.35f,0.25f,1.0f),
+        "PAD: %s   ERROR: 0x%08X", controller_connected_ ? "CONNECTED" : "WAITING",
+        static_cast<unsigned int>(controller_error_));
+    ImGui::SameLine();
+    ImGui::Text("RAW: 0x%08X   PRESSED: 0x%08X   NAV: %d   SELECTED: %u",
+        static_cast<unsigned int>(controller_buttons_),
+        static_cast<unsigned int>(controller_pressed_), controller_navigation_,
+        static_cast<unsigned int>(selected_item_));
     visible.clear();
     for (std::size_t i=0;i<entries.size();++i)
         if (search_query_[0]=='\0' || entries[i].title.find(search_query_)!=std::string::npos ||
