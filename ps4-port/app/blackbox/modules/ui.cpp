@@ -47,9 +47,7 @@ Ui::Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    // The native PS4 scePad input is translated to keyboard navigation below.
-    // Keyboard navigation is more reliable with this older SDL2 renderer/backend.
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // Controller navigation is handled by one explicit UI selection model.
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
@@ -80,18 +78,6 @@ Ui::~Ui() {
     for (auto& item : cover_cache_) if (item.second) SDL_DestroyTexture(item.second);
 }
 void Ui::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
-void Ui::controller_input(int navigation, bool confirm, bool, bool) {
-    // One input path: native/SDL controller commands become ImGui navigation keys.
-    // ImGui then owns focus, selection and activation on every page.
-    controller_up_ = navigation == -6;
-    controller_down_ = navigation == 6;
-    controller_left_ = navigation == -1;
-    controller_right_ = navigation == 1;
-    controller_page_up_ = navigation <= -18;
-    controller_page_down_ = navigation >= 18;
-    controller_confirm_ = confirm;
-}
-
 SDL_Texture* Ui::load_cover(const CatalogEntry& entry) {
     const auto found = cover_cache_.find(entry.title_id);
     if (found != cover_cache_.end()) return found->second;
@@ -126,24 +112,41 @@ void Ui::ensure_catalog_loaded() {
     catalog_loaded_ = true;
 }
 void Ui::move_selection(int delta) {
-    if (!delta) return;
-    if (page_ == Page::Home) selected_ = (selected_ + delta + 3) % 3;
-    else if (page_ == Page::Settings) selected_setting_ = (selected_setting_ + delta + 2) % 2;
-    else if (page_ == Page::Catalog && !catalog_.entries().empty()) {
+    if (delta == 0) return;
+    const int direction = delta < 0 ? -1 : 1;
+    if (page_ == Page::Home) {
+        selected_ = std::max(0, std::min(2, selected_ + direction));
+        return;
+    }
+    if (page_ == Page::Settings) {
+        selected_setting_ = std::max(0, std::min(1, selected_setting_ + direction));
+        return;
+    }
+    if (page_ == Page::Details) {
+        selected_detail_action_ = delta < 0 ? 0 : 1;
+        return;
+    }
+    if (page_ == Page::Favorites) {
+        const auto ids = favorite_indices();
+        if (ids.empty()) { selected_favorite_ = 0; return; }
+        const int last = static_cast<int>(ids.size()) - 1;
+        selected_favorite_ = static_cast<std::size_t>(std::max(0, std::min(last, static_cast<int>(selected_favorite_) + direction)));
+        selected_item_ = ids[selected_favorite_];
+        return;
+    }
+    if (page_ == Page::Catalog) {
         const auto& entries = catalog_.entries();
         std::vector<std::size_t> visible;
-        for (std::size_t i=0;i<entries.size();++i)
-            if (search_query_[0]=='\0' || entries[i].title.find(search_query_)!=std::string::npos ||
-                entries[i].title_id.find(search_query_)!=std::string::npos) visible.push_back(i);
-        if (!visible.empty()) {
-            auto it=std::find(visible.begin(),visible.end(),selected_item_);
-            int pos=it==visible.end()?0:(int)(it-visible.begin());
-            pos=std::max(0,std::min((int)visible.size()-1,pos+delta));
-            selected_item_=visible[(std::size_t)pos];
-        }
-    } else if (page_ == Page::Favorites) {
-        auto ids = favorite_indices();
-        if (!ids.empty()) selected_favorite_ = (std::size_t)std::max(0, std::min((int)ids.size()-1, (int)selected_favorite_+delta));
+        visible.reserve(entries.size());
+        for (std::size_t i = 0; i < entries.size(); ++i)
+            if (search_query_[0] == '\0' || entries[i].title.find(search_query_) != std::string::npos ||
+                entries[i].title_id.find(search_query_) != std::string::npos) visible.push_back(i);
+        if (visible.empty()) return;
+        auto it = std::find(visible.begin(), visible.end(), selected_item_);
+        int pos = it == visible.end() ? 0 : static_cast<int>(it - visible.begin());
+        // D-pad up/down = one row (six covers); left/right = one cover; L1/R1 = one page.
+        pos = std::max(0, std::min(static_cast<int>(visible.size()) - 1, pos + delta));
+        selected_item_ = visible[static_cast<std::size_t>(pos)];
     }
 }
 void Ui::activate() {
@@ -152,32 +155,48 @@ void Ui::activate() {
         else if (selected_ == 1) { ensure_catalog_loaded(); selected_favorite_ = 0; page_ = Page::Favorites; }
         else page_ = Page::Settings;
     } else if (page_ == Page::Catalog && !catalog_.entries().empty()) {
-        details_origin_ = Page::Catalog; page_ = Page::Details;
+        details_origin_ = Page::Catalog; selected_detail_action_ = 0; page_ = Page::Details;
     } else if (page_ == Page::Favorites) {
-        auto ids = favorite_indices();
-        if (selected_favorite_ < ids.size()) { selected_item_ = ids[selected_favorite_]; details_origin_ = Page::Favorites; page_ = Page::Details; }
+        const auto ids = favorite_indices();
+        if (selected_favorite_ < ids.size()) {
+            selected_item_ = ids[selected_favorite_]; details_origin_ = Page::Favorites;
+            selected_detail_action_ = 0; page_ = Page::Details;
+        }
     } else if (page_ == Page::Details) {
         const auto& entries = catalog_.entries();
-        if (selected_item_ < entries.size()) start_download(entries[selected_item_]);
+        if (selected_item_ < entries.size()) {
+            if (selected_detail_action_ == 0) start_download(entries[selected_item_]);
+            else toggle_favorite();
+        }
     } else if (page_ == Page::Settings) {
-        if (selected_setting_ == 0) storage_.set_accent_theme((storage_.accent_theme()+1)%3);
+        if (selected_setting_ == 0) storage_.set_accent_theme((storage_.accent_theme() + 1) % 3);
         else storage_.set_show_title_ids(!storage_.show_title_ids());
+        storage_.save();
     }
 }
 bool Ui::toggle_favorite() {
     ensure_catalog_loaded();
     if (page_ != Page::Catalog && page_ != Page::Details && page_ != Page::Favorites) return false;
     if (page_ == Page::Favorites) {
-        auto ids = favorite_indices();
+        const auto ids = favorite_indices();
         if (selected_favorite_ >= ids.size()) return false;
         selected_item_ = ids[selected_favorite_];
     }
     if (selected_item_ >= catalog_.entries().size()) return false;
-    return storage_.toggle_favorite(catalog_.entries()[selected_item_].id);
+    const bool changed = storage_.toggle_favorite(catalog_.entries()[selected_item_].id);
+    if (changed) {
+        const auto ids = favorite_indices();
+        if (ids.empty()) selected_favorite_ = 0;
+        else {
+            selected_favorite_ = std::min(selected_favorite_, ids.size() - 1);
+            if (page_ == Page::Favorites) selected_item_ = ids[selected_favorite_];
+        }
+        storage_.save();
+    }
+    return changed;
 }
 bool Ui::back() {
-    if (page_ == Page::Details) { page_ = details_origin_; return true; }
-    // Catalogue is now the entry screen, so CIRCLE must not return to Home.
+    if (page_ == Page::Details) { page_ = details_origin_; selected_detail_action_ = 0; return true; }
     if (page_ == Page::Catalog) return true;
     if (page_ != Page::Home) { page_ = Page::Catalog; return true; }
     return false;
@@ -224,7 +243,6 @@ void Ui::render_home() {
         ImGui::SetWindowFontScale(1.35f); ImGui::Text("%s",labels[i]); ImGui::SetWindowFontScale(1.0f);
         ImGui::TextDisabled("%s",desc[i]);
         if (ImGui::Button("OPEN",ImVec2(130,38))) { selected_=i; activate(); }
-        if (i == 0) ImGui::SetItemDefaultFocus();
         ImGui::EndChild(); ImGui::PopID();
     }
     ImGui::SetCursorPosY(ImGui::GetWindowHeight()-55); ImGui::Separator(); ImGui::TextDisabled("CROSS  OPEN     DPAD  NAVIGATE     CIRCLE  BACK");
@@ -269,9 +287,8 @@ void Ui::render_catalog() {
         bool clicked=false;
         if(tex) clicked=ImGui::ImageButton("cover",(ImTextureID)(intptr_t)tex,ImVec2(cardW,cardW*1.12f));
         else clicked=ImGui::Button("NO COVER",ImVec2(cardW,cardW*1.12f));
-        if (pos == first) ImGui::SetItemDefaultFocus();
         if(selected) ImGui::PopStyleColor(); ImGui::PopStyleVar();
-        if(clicked){selected_item_=i;details_origin_=Page::Catalog;page_=Page::Details;}
+        if(clicked){selected_item_=i;details_origin_=Page::Catalog;selected_detail_action_=0;page_=Page::Details;}
         const std::string short_title=clipped_title(e.title,cardW);
         if(selected) ImGui::TextColored(accent(storage_.accent_theme()),"%s",short_title.c_str());
         else ImGui::Text("%s",short_title.c_str());
@@ -293,63 +310,87 @@ void Ui::render_favorites() {
     ImGui::BeginChild("favorite-list",ImVec2(0,-50),true);
     for (std::size_t n=0;n<ids.size();++n) {
         const auto& e=catalog_.entries()[ids[n]];
-        if (ImGui::Selectable(e.title.c_str(),n==selected_favorite_,0,ImVec2(0,58))) { selected_favorite_=n; selected_item_=ids[n]; details_origin_=Page::Favorites; page_=Page::Details; }
-        if (n == 0) ImGui::SetItemDefaultFocus();
+        if (ImGui::Selectable(e.title.c_str(),n==selected_favorite_,0,ImVec2(0,58))) { selected_favorite_=n; selected_item_=ids[n]; details_origin_=Page::Favorites; selected_detail_action_=0; page_=Page::Details; }
         ImGui::SameLine(); ImGui::TextDisabled("%s",e.title_id.c_str());
     }
     if (ids.empty()) ImGui::TextDisabled("No favorites yet. Save titles from the catalogue.");
     ImGui::EndChild(); ImGui::TextDisabled("CROSS  DETAILS     SQUARE  REMOVE     CIRCLE  BACK"); ImGui::End();
 }
 void Ui::render_details() {
-    if (selected_item_>=catalog_.entries().size()) return;
-    const auto& e=catalog_.entries()[selected_item_];
-    ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("TITLE DETAILS",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize);
-    ImGui::TextColored(accent(storage_.accent_theme()),"BLACKBOX"); ImGui::SameLine(); ImGui::Text("/ TITLE DETAILS"); ImGui::Separator();
-    ImGui::BeginChild("details-cover",ImVec2(370,0),true);
-    SDL_Texture* tex=load_cover(e);
-    if (tex) ImGui::Image((ImTextureID)(intptr_t)tex,ImVec2(320,370));
+    if (selected_item_ >= catalog_.entries().size()) return;
+    const auto& e = catalog_.entries()[selected_item_];
+    ImGui::SetNextWindowPos(ImVec2(0, 0)); ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+    ImGui::Begin("TITLE DETAILS", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
+    ImGui::TextColored(accent(storage_.accent_theme()), "BLACKBOX"); ImGui::SameLine(); ImGui::Text("/ TITLE DETAILS"); ImGui::Separator();
+    ImGui::BeginChild("details-cover", ImVec2(370, 0), true);
+    SDL_Texture* tex = load_cover(e);
+    if (tex) ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2(320, 370));
     else ImGui::TextDisabled("COVER NOT AVAILABLE");
     ImGui::EndChild(); ImGui::SameLine();
-    ImGui::BeginGroup(); ImGui::SetWindowFontScale(1.45f); ImGui::TextWrapped("%s",e.title.c_str()); ImGui::SetWindowFontScale(1.0f);
-    ImGui::TextDisabled("TITLE ID  %s",e.title_id.c_str()); ImGui::Separator();
-    ImGui::Text("Region: %s",e.region.c_str()); ImGui::Text("Version: %s",e.version.c_str());
-    ImGui::Text("Publisher: %s",e.publisher.c_str()); ImGui::Text("Release: %s",e.release_date.c_str());
-    ImGui::Text("Game ID: %s",e.game_id.c_str()); ImGui::Spacing();
-    if (ImGui::Button("DOWNLOAD PKG",ImVec2(220,54))) start_download(e);
-    ImGui::SetItemDefaultFocus();
-    ImGui::SameLine(); if (ImGui::Button(storage_.is_favorite(e.id)?"REMOVE FAVORITE":"ADD FAVORITE",ImVec2(220,54))) toggle_favorite();
-    if (e.commercial || e.content_type!="homebrew") ImGui::TextColored(ImVec4(1,.35f,.3f,1),"COMMERCIAL CONTENT — DOWNLOAD BLOCKED");
-    if (!download_message_.empty()) ImGui::TextWrapped("%s",download_message_.c_str());
-    ImGui::EndGroup(); ImGui::SetCursorPosY(ImGui::GetWindowHeight()-45); ImGui::Separator(); ImGui::TextDisabled("CROSS  DOWNLOAD     SQUARE  FAVORITE     CIRCLE  BACK"); ImGui::End();
+    ImGui::BeginGroup();
+    ImGui::SetWindowFontScale(1.45f); ImGui::TextWrapped("%s", e.title.c_str()); ImGui::SetWindowFontScale(1.0f);
+    ImGui::TextDisabled("TITLE ID  %s", e.title_id.c_str()); ImGui::Separator();
+    ImGui::Text("Region: %s", e.region.c_str()); ImGui::Text("Version: %s", e.version.c_str());
+    ImGui::Text("Publisher: %s", e.publisher.c_str()); ImGui::Text("Release: %s", e.release_date.c_str());
+    ImGui::Text("Game ID: %s", e.game_id.c_str()); ImGui::Spacing();
+    const bool download_selected = selected_detail_action_ == 0;
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, download_selected ? 3.0f : 1.0f);
+    if (download_selected) ImGui::PushStyleColor(ImGuiCol_Border, accent(storage_.accent_theme()));
+    if (ImGui::Button("DOWNLOAD PKG", ImVec2(220, 54))) start_download(e);
+    if (download_selected) ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+    ImGui::SameLine();
+    const bool favorite_selected = selected_detail_action_ == 1;
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, favorite_selected ? 3.0f : 1.0f);
+    if (favorite_selected) ImGui::PushStyleColor(ImGuiCol_Border, accent(storage_.accent_theme()));
+    if (ImGui::Button(storage_.is_favorite(e.id) ? "REMOVE FAVORITE" : "ADD FAVORITE", ImVec2(220, 54))) toggle_favorite();
+    if (favorite_selected) ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+    if (e.commercial || e.content_type != "homebrew") ImGui::TextColored(ImVec4(1, .35f, .3f, 1), "COMMERCIAL CONTENT — DOWNLOAD BLOCKED");
+    if (!download_message_.empty()) ImGui::TextWrapped("%s", download_message_.c_str());
+    ImGui::EndGroup(); ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 45); ImGui::Separator();
+    ImGui::TextDisabled("DPAD  SELECT ACTION   CROSS  CONFIRM   SQUARE  FAVORITE   CIRCLE  BACK");
+    ImGui::End();
 }
 void Ui::render_settings() {
-    ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("SETTINGS",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize);
-    ImGui::TextColored(accent(storage_.accent_theme()),"SETTINGS"); ImGui::Separator();
-    ImGui::Text("Interface accent"); ImGui::SameLine(360); if (ImGui::Button("CHANGE THEME")) { selected_setting_=0; activate(); }
-    ImGui::SetItemDefaultFocus();
-    ImGui::Text("Show title IDs"); ImGui::SameLine(360); bool show=storage_.show_title_ids(); if (ImGui::Checkbox("##showids",&show)) { storage_.set_show_title_ids(show); selected_setting_=1; }
+    ImGui::SetNextWindowPos(ImVec2(0, 0)); ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+    ImGui::Begin("SETTINGS", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
+    ImGui::TextColored(accent(storage_.accent_theme()), "SETTINGS"); ImGui::Separator();
+    const bool theme_selected = selected_setting_ == 0;
+    ImGui::TextColored(theme_selected ? accent(storage_.accent_theme()) : ImVec4(1,1,1,1), "Interface accent");
+    ImGui::SameLine(360);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, theme_selected ? 3.0f : 1.0f);
+    if (theme_selected) ImGui::PushStyleColor(ImGuiCol_Border, accent(storage_.accent_theme()));
+    if (ImGui::Button("CHANGE THEME")) { selected_setting_ = 0; activate(); }
+    if (theme_selected) ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+    const bool ids_selected = selected_setting_ == 1;
+    ImGui::TextColored(ids_selected ? accent(storage_.accent_theme()) : ImVec4(1,1,1,1), "Show title IDs");
+    ImGui::SameLine(360);
+    bool show = storage_.show_title_ids();
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, ids_selected ? 3.0f : 1.0f);
+    if (ids_selected) ImGui::PushStyleColor(ImGuiCol_Border, accent(storage_.accent_theme()));
+    if (ImGui::Checkbox("##showids", &show)) { selected_setting_ = 1; storage_.set_show_title_ids(show); storage_.save(); }
+    if (ids_selected) ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+    ImGui::TextDisabled("DPAD  SELECT   CROSS  CHANGE   CIRCLE  BACK");
     ImGui::End();
 }
 void Ui::render() {
     ImGui_ImplSDLRenderer2_NewFrame();
     ImGui_ImplSDL2_NewFrame();
-    ImGuiIO& io = ImGui::GetIO();
-    // Translate the controller's one-frame commands after the SDL backend update.
-    // The following frame sends key-up events, allowing clean repeated presses.
-    io.AddKeyEvent(ImGuiKey_UpArrow, controller_up_);
-    io.AddKeyEvent(ImGuiKey_DownArrow, controller_down_);
-    io.AddKeyEvent(ImGuiKey_LeftArrow, controller_left_);
-    io.AddKeyEvent(ImGuiKey_RightArrow, controller_right_);
-    io.AddKeyEvent(ImGuiKey_PageUp, controller_page_up_);
-    io.AddKeyEvent(ImGuiKey_PageDown, controller_page_down_);
-    io.AddKeyEvent(ImGuiKey_Enter, controller_confirm_);
     ImGui::NewFrame();
-    switch(page_) { case Page::Home:render_home();break; case Page::Catalog:render_catalog();break; case Page::Details:render_details();break; case Page::Favorites:render_favorites();break; case Page::Settings:render_settings();break; }
+    switch (page_) {
+        case Page::Home: render_home(); break;
+        case Page::Catalog: render_catalog(); break;
+        case Page::Details: render_details(); break;
+        case Page::Favorites: render_favorites(); break;
+        case Page::Settings: render_settings(); break;
+    }
     ImGui::Render();
-    SDL_SetRenderDrawColor(renderer_,5,9,17,255); SDL_RenderClear(renderer_);
+    SDL_SetRenderDrawColor(renderer_, 5, 9, 17, 255); SDL_RenderClear(renderer_);
     ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
     SDL_RenderPresent(renderer_);
+}
 }
 }
