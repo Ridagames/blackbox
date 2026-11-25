@@ -19,6 +19,18 @@ std::string safe_filename(std::string value) {
         if (ch == '/' || ch == '\\' || ch == ':' || ch == '\n' || ch == '\r') ch = '_';
     return value;
 }
+std::string clipped_title(const std::string& value, float max_width) {
+    if (ImGui::CalcTextSize(value.c_str()).x <= max_width) return value;
+    std::string clipped = value;
+    const std::string suffix = "...";
+    while (!clipped.empty() && ImGui::CalcTextSize((clipped + suffix).c_str()).x > max_width) {
+        // Remove one complete UTF-8 code point, not just its final byte.
+        clipped.pop_back();
+        while (!clipped.empty() && (static_cast<unsigned char>(clipped.back()) & 0xC0) == 0x80)
+            clipped.pop_back();
+    }
+    return clipped.empty() ? suffix : clipped + suffix;
+}
 }
 
 Ui::Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage)
@@ -88,7 +100,9 @@ SDL_Texture* Ui::load_cover(const CatalogEntry& entry) {
         if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
             (ch >= '0' && ch <= '9') || ch == '_' || ch == '-') safe.push_back((char)ch);
     if (safe.empty()) return nullptr;
+    // Try SDL's executable-relative path first, then the PS4 app mount.
     SDL_Surface* surface = SDL_LoadBMP((data_path_ + "covers/" + safe + ".bmp").c_str());
+    if (!surface) surface = SDL_LoadBMP(("/app0/data/covers/" + safe + ".bmp").c_str());
     if (!surface) return nullptr;
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, surface);
     SDL_FreeSurface(surface);
@@ -225,12 +239,18 @@ void Ui::render_catalog() {
         if((int)((i-first)%columns)!=0) ImGui::SameLine(0,gap);
         ImGui::BeginGroup();
         SDL_Texture* tex=load_cover(e);
+        const bool selected = (i == selected_item_);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, selected ? 3.0f : 1.0f);
+        if (selected) ImGui::PushStyleColor(ImGuiCol_Border, accent(storage_.accent_theme()));
         bool clicked=false;
         if(tex) clicked=ImGui::ImageButton("cover",(ImTextureID)(intptr_t)tex,ImVec2(cardW,cardW*1.12f));
         else clicked=ImGui::Button("NO COVER",ImVec2(cardW,cardW*1.12f));
+        if (selected) ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
         if(clicked){selected_item_=i;details_origin_=Page::Catalog;page_=Page::Details;}
-        if(i==selected_item_) ImGui::TextColored(accent(storage_.accent_theme()),"> %s",e.title.c_str());
-        else ImGui::TextWrapped("%s",e.title.c_str());
+        const std::string short_title = clipped_title(e.title, cardW);
+        if(selected) ImGui::TextColored(accent(storage_.accent_theme()),"%s",short_title.c_str());
+        else ImGui::Text("%s",short_title.c_str());
         if(storage_.show_title_ids()) ImGui::TextDisabled("%s",e.title_id.c_str());
         ImGui::EndGroup(); ImGui::PopID();
     }
