@@ -158,7 +158,7 @@ void Controller::poll() {
 
     // SDL fallback: used when the native scePad path is unavailable.
     // It supports DS4 mappings exposed by SDL without changing the native path.
-    if (sdl_controller_ && SDL_GameControllerGetAttached(sdl_controller_)) {
+    if (!connected_ && sdl_controller_ && SDL_GameControllerGetAttached(sdl_controller_)) {
         SDL_GameControllerUpdate();
         const auto button = [this](SDL_GameControllerButton b) {
             return SDL_GameControllerGetButton(sdl_controller_, b) != 0;
