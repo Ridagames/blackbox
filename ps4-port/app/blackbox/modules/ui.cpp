@@ -48,7 +48,10 @@ Ui::Ui(SDL_Renderer* renderer, Storage& storage)
 }
 
 Ui::~Ui() {
-    if (cover_texture_) SDL_DestroyTexture(cover_texture_);
+    for (auto& item : cover_cache_)
+        if (item.second) SDL_DestroyTexture(item.second);
+    cover_cache_.clear();
+    cover_texture_ = nullptr;
     if (logo_texture_) SDL_DestroyTexture(logo_texture_);
     if (background_texture_) SDL_DestroyTexture(background_texture_);
 }
@@ -61,23 +64,28 @@ void Ui::draw_texture(SDL_Texture* texture, const SDL_Rect& destination, Uint8 a
 }
 
 void Ui::load_cover(const CatalogEntry& entry) {
-    if (loaded_cover_id_ == entry.title_id) return;
-    if (cover_texture_) {
-        SDL_DestroyTexture(cover_texture_);
-        cover_texture_ = nullptr;
-    }
     loaded_cover_id_ = entry.title_id;
+    const auto cached = cover_cache_.find(entry.title_id);
+    if (cached != cover_cache_.end()) {
+        cover_texture_ = cached->second;
+        return;
+    }
     std::string safe_id;
     for (unsigned char ch : entry.title_id) {
         if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
             (ch >= '0' && ch <= '9') || ch == '_' || ch == '-')
             safe_id.push_back(static_cast<char>(ch));
     }
-    if (safe_id.empty()) return;
+    if (safe_id.empty()) { cover_texture_ = nullptr; return; }
     SDL_Surface* surface = SDL_LoadBMP((data_path_ + "covers/" + safe_id + ".bmp").c_str());
-    if (!surface) return;
-    cover_texture_ = SDL_CreateTextureFromSurface(renderer_, surface);
+    if (!surface) { cover_texture_ = nullptr; return; }
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, surface);
     SDL_FreeSurface(surface);
+    if (texture) {
+        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+        cover_cache_[entry.title_id] = texture;
+    }
+    cover_texture_ = texture;
 }
  
 std::vector<std::size_t> Ui::favorite_indices() const {
@@ -319,75 +327,87 @@ void Ui::render_home() {
 
 void Ui::render_catalog() {
     const auto& entries = catalog_.entries();
-    draw_header("PS4 CATALOG", std::to_string(entries.size()) + " METADATA ENTRIES");
-    SDL_Rect list_panel{80, 190, 1080, 735};
-    SDL_Rect detail_panel{1190, 190, 650, 735};
-    fill(renderer_, list_panel, SDL_Color{15, 22, 34, 255});
-    fill(renderer_, detail_panel, SDL_Color{15, 22, 34, 255});
-    draw_text(renderer_, 112, 215, 3, "AVAILABLE RELEASES",
-        SDL_Color{110, 190, 220, 255});
+    draw_header("GAME LIST", std::to_string(entries.size()) + " TITRES  /  PS4 STOREFRONT");
+    // 7-column storefront grid, matching the supplied BlackBox reference.
+    constexpr int columns = 7;
+    constexpr int rows = 2;
+    constexpr int visible = columns * rows;
+    constexpr int left = 62;
+    constexpr int top = 205;
+    constexpr int cell_w = 254;
+    constexpr int cell_h = 350;
+    constexpr int cover_w = 218;
+    constexpr int cover_h = 218;
+    const std::size_t first = (selected_item_ / visible) * visible;
+    const std::size_t last = std::min(entries.size(), first + visible);
 
+    draw_text(renderer_, 70, 174, 2, "L1 / R1  CATEGORIES     L2 / R2  FILTERS",
+        SDL_Color{125, 165, 195, 255});
     if (entries.empty()) {
-        draw_text(renderer_, 125, 330, 4, "CATALOG NOT AVAILABLE",
+        draw_text(renderer_, 125, 420, 4, "CATALOG NOT AVAILABLE",
             SDL_Color{255, 180, 120, 255});
-        draw_text(renderer_, 125, 390, 2, "CHECK THE PACKAGED DATA FILE",
-            SDL_Color{160, 175, 195, 255});
     } else {
-        const std::size_t end = std::min(entries.size(), scroll_offset_ + kVisibleRows);
-        for (std::size_t i = scroll_offset_; i < end; ++i) {
-            const int row = static_cast<int>(i - scroll_offset_);
-            const int y = 265 + row * 62;
-            SDL_Rect item{105, y, 1030, 54};
-            fill(renderer_, item, i == selected_item_
-                ? SDL_Color{28, 63, 86, 255} : SDL_Color{20, 29, 43, 255});
-            const SDL_Color title_color = i == selected_item_
-                ? SDL_Color{245, 250, 255, 255} : SDL_Color{190, 205, 220, 255};
-            draw_text(renderer_, 125, y + 17, 2, clipped(entries[i].title, 48), title_color);
-            if (storage_.show_title_ids())
-                draw_text(renderer_, 850, y + 17, 2, entries[i].title_id, accent_color());
-            if (storage_.is_favorite(entries[i].id))
-                draw_text(renderer_, 1110, y + 17, 2, "*", SDL_Color{255, 205, 95, 255});
-        }
+        for (std::size_t i = first; i < last; ++i) {
+            const int slot = static_cast<int>(i - first);
+            const int col = slot % columns;
+            const int row = slot / columns;
+            const int x = left + col * cell_w;
+            const int y = top + row * cell_h;
+            const bool selected = i == selected_item_;
+            const auto& entry = entries[i];
 
-        const auto& entry = entries[selected_item_];
-        draw_text(renderer_, 1230, 225, 3, "SELECTED RELEASE",
-            SDL_Color{110, 190, 220, 255});
-        load_cover(entry);
-        if (cover_texture_) {
-            draw_texture(cover_texture_, SDL_Rect{1230, 285, 205, 205});
-        } else {
-            fill(renderer_, SDL_Rect{1230, 285, 205, 205}, SDL_Color{24, 39, 57, 255});
-            draw_text(renderer_, 1275, 380, 2, "NO COVER", SDL_Color{120, 155, 180, 255});
+            // Selection glow and dark tile are intentionally subtle; artwork stays dominant.
+            if (selected) {
+                SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+                fill(renderer_, SDL_Rect{x - 7, y - 7, cover_w + 14, cover_h + 14},
+                    SDL_Color{70, 190, 255, 72});
+                SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_NONE);
+                fill(renderer_, SDL_Rect{x - 4, y - 4, cover_w + 8, cover_h + 8},
+                    SDL_Color{150, 225, 255, 255});
+            }
+            SDL_Rect cover_rect{x, y, cover_w, cover_h};
+            load_cover(entry);
+            if (cover_texture_) {
+                draw_texture(cover_texture_, cover_rect);
+            } else {
+                fill(renderer_, cover_rect, SDL_Color{18, 35, 54, 255});
+                draw_text(renderer_, x + 52, y + 100, 2, "NO ARTWORK",
+                    SDL_Color{110, 150, 180, 255});
+            }
+            SDL_Rect tag{x + 8, y + cover_h - 31, 48, 23};
+            fill(renderer_, tag, SDL_Color{8, 14, 24, 230});
+            draw_text(renderer_, tag.x + 8, tag.y + 5, 1, "PKG",
+                SDL_Color{255, 205, 95, 255});
+            draw_text(renderer_, x + 2, y + cover_h + 15, 2,
+                clipped(entry.title, 25),
+                selected ? SDL_Color{250, 253, 255, 255} : SDL_Color{205, 218, 232, 255});
+            std::string meta = entry.size_bytes
+                ? std::to_string(static_cast<unsigned long long>(entry.size_bytes / 1073741824ULL)) + " GB"
+                : value_or(entry.region, "PS4");
+            if (!entry.region.empty()) meta += "  -  " + entry.region;
+            draw_text(renderer_, x + 2, y + cover_h + 49, 1, clipped(meta, 31),
+                SDL_Color{125, 165, 195, 255});
+            if (storage_.is_favorite(entry.id))
+                draw_text(renderer_, x + cover_w - 22, y + cover_h + 15, 2, "*",
+                    SDL_Color{255, 205, 95, 255});
         }
-        draw_text(renderer_, 1465, 285, 2, clipped(entry.title, 28),
-            SDL_Color{240, 246, 255, 255});
-        draw_text(renderer_, 1465, 345, 2, "ID: " + entry.title_id,
-            SDL_Color{110, 190, 220, 255});
-        draw_text(renderer_, 1465, 390, 2, "REGION: " + value_or(entry.region, "N/A"),
-            SDL_Color{170, 190, 210, 255});
-        draw_text(renderer_, 1465, 435, 2, "VERSION: " + value_or(entry.version, "N/A"),
-            SDL_Color{170, 190, 210, 255});
-        draw_text(renderer_, 1465, 480, 2, "PUBLISHER: " + clipped(value_or(entry.publisher, "N/A"), 28),
-            SDL_Color{170, 190, 210, 255});
-        if (entry.size_bytes > 0) {
-            const auto size_gb = static_cast<unsigned long long>(entry.size_bytes / 1073741824ULL);
-            draw_text(renderer_, 1230, 545, 2, "SIZE: " + std::to_string(size_gb) + " GB",
-                SDL_Color{170, 190, 210, 255});
-        } else {
-            draw_text(renderer_, 1230, 545, 2, "SIZE: N/A",
-                SDL_Color{170, 190, 210, 255});
-        }
-        draw_text(renderer_, 1230, 610, 2,
-            storage_.is_favorite(entry.id) ? "SAVED TO FAVORITES" : "NOT IN FAVORITES",
-            storage_.is_favorite(entry.id) ? SDL_Color{255, 205, 95, 255} : SDL_Color{80, 210, 155, 255});
-        draw_text(renderer_, 1230, 670, 2,
-            entry.content_type == "homebrew" ? "HOMEBREW PACKAGE" : "COMMERCIAL / METADATA",
-            entry.content_type == "homebrew" ? SDL_Color{80, 210, 155, 255} : SDL_Color{125, 145, 165, 255});
-
     }
-    draw_footer("UP / DOWN SCROLL     CROSS DETAILS     SQUARE SAVE FAVORITE     CIRCLE BACK");
-}
 
+    // Focused game strip at the bottom, like the reference's action/status rail.
+    if (!entries.empty() && selected_item_ < entries.size()) {
+        const auto& selected = entries[selected_item_];
+        SDL_Rect rail{64, 930, 1792, 2};
+        fill(renderer_, rail, SDL_Color{42, 64, 88, 255});
+        draw_text(renderer_, 70, 950, 2, clipped(selected.title, 42),
+            SDL_Color{235, 244, 255, 255});
+        draw_text(renderer_, 720, 950, 2, selected.title_id,
+            SDL_Color{105, 190, 225, 255});
+        draw_text(renderer_, 1110, 950, 2, "X DETAILS    SQUARE FAVORITE    CIRCLE BACK",
+            SDL_Color{155, 180, 205, 255});
+    } else {
+        draw_footer("UP / DOWN SELECT     CROSS DETAILS     CIRCLE BACK");
+    }
+}
 void Ui::render_favorites() {
     const auto indices = favorite_indices();
     draw_header("FAVORITES", std::to_string(indices.size()) + " SAVED ENTRIES");
