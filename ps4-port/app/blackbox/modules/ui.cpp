@@ -114,13 +114,22 @@ bool Ui::toggle_favorite() {
     if (selected_item_ >= entries.size()) return false;
     const bool added = storage_.toggle_favorite(entries[selected_item_].id);
 
-    if (page_ == Page::Favorites) {
+    if (page_ == Page::Favorites ||
+        (page_ == Page::Details && details_origin_ == Page::Favorites)) {
         const auto indices = favorite_indices();
         if (indices.empty()) {
             selected_favorite_ = 0;
             scroll_offset_ = 0;
-        } else if (selected_favorite_ >= indices.size()) {
-            selected_favorite_ = indices.size() - 1;
+        } else {
+            if (selected_favorite_ >= indices.size())
+                selected_favorite_ = indices.size() - 1;
+            const std::size_t max_scroll = indices.size() > kVisibleRows
+                ? indices.size() - kVisibleRows : 0;
+            if (scroll_offset_ > max_scroll) scroll_offset_ = max_scroll;
+            if (selected_favorite_ < scroll_offset_)
+                scroll_offset_ = selected_favorite_;
+            if (selected_favorite_ >= scroll_offset_ + kVisibleRows)
+                scroll_offset_ = selected_favorite_ - kVisibleRows + 1;
         }
     }
     return added;
