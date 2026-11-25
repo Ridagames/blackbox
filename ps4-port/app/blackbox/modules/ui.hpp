@@ -22,10 +22,12 @@ private:
 
     void ensure_catalog_loaded();
     std::vector<std::size_t> favorite_indices() const;
+    SDL_Color accent_color() const;
     void render_home();
     void render_catalog();
     void render_favorites();
     void render_details();
+    void render_settings();
     void render_empty_page(const std::string& title, const std::string& message);
     void draw_header(const std::string& title, const std::string& subtitle);
     void draw_footer(const std::string& hint);
@@ -33,6 +35,7 @@ private:
     SDL_Renderer* renderer_;
     Storage& storage_;
     int selected_ = 0;
+    int selected_setting_ = 0;
     Page page_ = Page::Home;
     Page details_origin_ = Page::Catalog;
     Catalog catalog_;
