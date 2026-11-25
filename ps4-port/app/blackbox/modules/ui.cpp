@@ -200,33 +200,37 @@ void Ui::render_home() {
 void Ui::render_catalog() {
     ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
     ImGui::Begin("PS4 CATALOGUE",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize);
-    ImGui::TextColored(accent(storage_.accent_theme()),"BLACKBOX"); ImGui::SameLine(); ImGui::Text(" / PS4 CATALOGUE");
-    ImGui::SameLine(ImGui::GetWindowWidth()-230); ImGui::TextDisabled("%u TITLES",(unsigned)catalog_.entries().size());
-    ImGui::Separator();
-    ImGui::BeginChild("cover-grid",ImVec2(0,-52),false);
     const auto& entries=catalog_.entries();
-    const float gap=14.0f, width=ImGui::GetContentRegionAvail().x;
+    const std::size_t page_size=18;
+    const std::size_t page=selected_item_/page_size;
+    const std::size_t first=page*page_size;
+    ImGui::TextColored(accent(storage_.accent_theme()),"BLACKBOX"); ImGui::SameLine(); ImGui::Text(" / PS4 CATALOGUE");
+    ImGui::SameLine(ImGui::GetWindowWidth()-280); ImGui::TextDisabled("%u TITLES",(unsigned)entries.size());
+    ImGui::Separator();
+    ImGui::BeginChild("cover-grid",ImVec2(0,-92),false);
+    const float gap=16.0f, width=ImGui::GetContentRegionAvail().x;
     const int columns=6; const float cardW=(width-gap*(columns-1))/columns;
-    for (std::size_t i=0;i<entries.size();++i) {
+    const std::size_t last=std::min(entries.size(),first+page_size);
+    for(std::size_t i=first;i<last;++i){
         const auto& e=entries[i]; ImGui::PushID((int)i);
-        if ((int)(i%columns)!=0) ImGui::SameLine(0,gap);
+        if((int)((i-first)%columns)!=0) ImGui::SameLine(0,gap);
         ImGui::BeginGroup();
         SDL_Texture* tex=load_cover(e);
-        if (tex) ImGui::Image((ImTextureID)(intptr_t)tex,ImVec2(cardW,cardW*1.12f));
-        else {
-            ImGui::Button("NO COVER",ImVec2(cardW,cardW*1.12f));
-        }
-        bool chosen=(i==selected_item_);
-        if (chosen) ImGui::TextColored(accent(storage_.accent_theme()),"> %s",e.title.c_str());
+        bool clicked=false;
+        if(tex) clicked=ImGui::ImageButton("cover",(ImTextureID)(intptr_t)tex,ImVec2(cardW,cardW*1.12f));
+        else clicked=ImGui::Button("NO COVER",ImVec2(cardW,cardW*1.12f));
+        if(clicked){selected_item_=i;details_origin_=Page::Catalog;page_=Page::Details;}
+        if(i==selected_item_) ImGui::TextColored(accent(storage_.accent_theme()),"> %s",e.title.c_str());
         else ImGui::TextWrapped("%s",e.title.c_str());
-        if (storage_.show_title_ids()) ImGui::TextDisabled("%s",e.title_id.c_str());
-        if (ImGui::IsItemClicked()) { selected_item_=i; details_origin_=Page::Catalog; page_=Page::Details; }
-        ImGui::EndGroup();
-        if (ImGui::IsItemClicked()) selected_item_=i;
-        ImGui::PopID();
+        if(storage_.show_title_ids()) ImGui::TextDisabled("%s",e.title_id.c_str());
+        ImGui::EndGroup(); ImGui::PopID();
     }
     ImGui::EndChild();
-    ImGui::Separator(); ImGui::TextDisabled("CROSS  DETAILS     SQUARE  FAVORITE     CIRCLE  BACK");
+    ImGui::Separator();
+    if(ImGui::Button("PREVIOUS",ImVec2(130,38)) && page>0) selected_item_=(page-1)*page_size;
+    ImGui::SameLine(); ImGui::TextDisabled("PAGE %u / %u",(unsigned)(page+1),(unsigned)std::max<std::size_t>(1,(entries.size()+page_size-1)/page_size));
+    ImGui::SameLine(); if(ImGui::Button("NEXT",ImVec2(130,38)) && first+page_size<entries.size()) selected_item_=first+page_size;
+    ImGui::SameLine(); ImGui::TextDisabled("CROSS  DETAILS     SQUARE  FAVORITE     CIRCLE  BACK");
     ImGui::End();
 }
 void Ui::render_favorites() {
