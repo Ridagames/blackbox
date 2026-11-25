@@ -350,33 +350,40 @@ void Ui::render_catalog() {
         }
 
         const auto& entry = entries[selected_item_];
-        draw_text(renderer_, 1230, 225, 3, "SELECTED ENTRY",
+        draw_text(renderer_, 1230, 225, 3, "SELECTED RELEASE",
             SDL_Color{110, 190, 220, 255});
-        draw_text(renderer_, 1230, 285, 3, clipped(entry.title, 45),
+        load_cover(entry);
+        if (cover_texture_) {
+            draw_texture(cover_texture_, SDL_Rect{1230, 285, 205, 205});
+        } else {
+            fill(renderer_, SDL_Rect{1230, 285, 205, 205}, SDL_Color{24, 39, 57, 255});
+            draw_text(renderer_, 1275, 380, 2, "NO COVER", SDL_Color{120, 155, 180, 255});
+        }
+        draw_text(renderer_, 1465, 285, 2, clipped(entry.title, 28),
             SDL_Color{240, 246, 255, 255});
-        draw_text(renderer_, 1230, 365, 2, "TITLE ID: " + entry.title_id,
+        draw_text(renderer_, 1465, 345, 2, "ID: " + entry.title_id,
+            SDL_Color{110, 190, 220, 255});
+        draw_text(renderer_, 1465, 390, 2, "REGION: " + value_or(entry.region, "N/A"),
             SDL_Color{170, 190, 210, 255});
-        draw_text(renderer_, 1230, 415, 2, "REGION: " + value_or(entry.region, "N/A"),
+        draw_text(renderer_, 1465, 435, 2, "VERSION: " + value_or(entry.version, "N/A"),
             SDL_Color{170, 190, 210, 255});
-        draw_text(renderer_, 1230, 465, 2, "VERSION: " + value_or(entry.version, "N/A"),
-            SDL_Color{170, 190, 210, 255});
-        draw_text(renderer_, 1230, 515, 2, "PUBLISHER: " + clipped(value_or(entry.publisher, "N/A"), 35),
-            SDL_Color{170, 190, 210, 255});
-        draw_text(renderer_, 1230, 565, 2, "RELEASE: " + value_or(entry.release_date, "N/A"),
+        draw_text(renderer_, 1465, 480, 2, "PUBLISHER: " + clipped(value_or(entry.publisher, "N/A"), 28),
             SDL_Color{170, 190, 210, 255});
         if (entry.size_bytes > 0) {
             const auto size_gb = static_cast<unsigned long long>(entry.size_bytes / 1073741824ULL);
-            draw_text(renderer_, 1230, 615, 2, "SIZE: " + std::to_string(size_gb) + " GB",
+            draw_text(renderer_, 1230, 545, 2, "SIZE: " + std::to_string(size_gb) + " GB",
                 SDL_Color{170, 190, 210, 255});
         } else {
-            draw_text(renderer_, 1230, 615, 2, "SIZE: N/A",
+            draw_text(renderer_, 1230, 545, 2, "SIZE: N/A",
                 SDL_Color{170, 190, 210, 255});
         }
-        draw_text(renderer_, 1230, 720, 2,
+        draw_text(renderer_, 1230, 610, 2,
             storage_.is_favorite(entry.id) ? "SAVED TO FAVORITES" : "NOT IN FAVORITES",
             storage_.is_favorite(entry.id) ? SDL_Color{255, 205, 95, 255} : SDL_Color{80, 210, 155, 255});
-        draw_text(renderer_, 1230, 760, 2, "METADATA ONLY",
-            SDL_Color{125, 145, 165, 255});
+        draw_text(renderer_, 1230, 670, 2,
+            entry.content_type == "homebrew" ? "HOMEBREW PACKAGE" : "COMMERCIAL / METADATA",
+            entry.content_type == "homebrew" ? SDL_Color{80, 210, 155, 255} : SDL_Color{125, 145, 165, 255});
+
     }
     draw_footer("UP / DOWN SCROLL     CROSS DETAILS     SQUARE SAVE FAVORITE     CIRCLE BACK");
 }
