@@ -9,28 +9,19 @@ int main(int, char**) {
         std::fprintf(stderr, "BLACKBOX: SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
-
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
     SDL_Window* window = SDL_CreateWindow("BLACKBOX PS4",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1920, 1080, SDL_WINDOW_SHOWN);
-    if (!window) {
-        SDL_Quit();
-        return 2;
-    }
-
+    if (!window) { SDL_Quit(); return 2; }
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-    if (!renderer) {
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 3;
-    }
+    if (!renderer) { SDL_DestroyWindow(window); SDL_Quit(); return 3; }
 
     blackbox::Controller controller;
     blackbox::Storage storage;
     storage.load();
-    blackbox::Ui ui(renderer, storage);
+    blackbox::Ui ui(window, renderer, storage);
     ui.move_selection(storage.last_section());
 
     bool running = true;
@@ -38,13 +29,11 @@ int main(int, char**) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) running = false;
+            ui.process_event(event);
             controller.handle(event);
         }
-
         controller.poll();
-        if (controller.exit_requested() && !ui.back())
-            running = false;
-
+        if (controller.exit_requested() && !ui.back()) running = false;
         ui.move_selection(controller.navigation_delta());
         if (controller.confirm_pressed()) {
             ui.activate();
@@ -55,11 +44,9 @@ int main(int, char**) {
             ui.toggle_favorite();
             storage.save();
         }
-
         ui.render();
         SDL_Delay(8);
     }
-
     storage.set_last_section(ui.selected_section());
     storage.save();
     SDL_DestroyRenderer(renderer);
