@@ -6,10 +6,11 @@ CONTENT_ID := IV0000-RGSB00001_00-BLACKBOXPS400001
 LIBS := -lc -lkernel -lc++ -lSceUserService -lSceVideoOut -lSceAudioOut -lScePad -lSceSysmodule -lSceNet -lSceSsl -lSceHttp -lSDL2
 TOOLCHAIN := $(OO_PS4_TOOLCHAIN)
 PROJDIR := blackbox
+IMGUI_DIR := third_party/imgui
 INTDIR := $(PROJDIR)/x64/Release
-CXXFILES := $(wildcard $(PROJDIR)/*.cpp) $(wildcard $(PROJDIR)/modules/*.cpp)
-OBJS := $(patsubst $(PROJDIR)/%.cpp,$(INTDIR)/%.o,$(CXXFILES))
-CXXFLAGS := --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -O2 -DNDEBUG -c -isysroot $(TOOLCHAIN) -isystem $(TOOLCHAIN)/include -isystem $(TOOLCHAIN)/include/c++/v1 -isystem $(TOOLCHAIN)/include/SDL2
+CXXFILES := $(wildcard $(PROJDIR)/*.cpp) $(wildcard $(PROJDIR)/modules/*.cpp) $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui_tables.cpp $(IMGUI_DIR)/imgui_widgets.cpp $(IMGUI_DIR)/backends/imgui_impl_sdl2.cpp $(IMGUI_DIR)/backends/imgui_impl_sdlrenderer2.cpp
+OBJS := $(patsubst %.cpp,$(INTDIR)/%.o,$(CXXFILES))
+CXXFLAGS := --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -O2 -DNDEBUG -c -isysroot $(TOOLCHAIN) -isystem $(TOOLCHAIN)/include -isystem $(TOOLCHAIN)/include/c++/v1 -isystem $(TOOLCHAIN)/include/SDL2 -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
 LDFLAGS := -m elf_x86_64 -pie --script $(TOOLCHAIN)/link.x --eh-frame-hdr -L$(TOOLCHAIN)/lib $(LIBS) $(TOOLCHAIN)/lib/crt1.o
 
 ifeq ($(shell uname -s),Darwin)
@@ -38,7 +39,7 @@ prepare:
 sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx data/ui-background.bmp data/ui-logo.bmp data/.artwork-ready: | prepare
 	@test -s "$@"
 
-$(INTDIR)/%.o: $(PROJDIR)/%.cpp | prepare
+$(INTDIR)/%.o: %.cpp | prepare
 	mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -o $@ $<
 
