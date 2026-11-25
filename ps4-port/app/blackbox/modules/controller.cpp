@@ -4,7 +4,7 @@
  * Original copyright (C) 2026 nueex.
  * SPDX-License-Identifier: GPL-3.0-or-later
  * Source: https://github.com/nueex/ps-mtp-explorer
- * Adaptation: 2026-11-24, Ridagames.
+ * Adaptation: 2026-11-25, Ridagames.
  */
 #include "controller.hpp"
 #include <orbis/libkernel.h>
@@ -78,6 +78,9 @@ void Controller::handle(const SDL_Event& event) {
         case SDLK_SPACE:
             keyboard_confirm_ = true;
             break;
+        case SDLK_f:
+            keyboard_favorite_ = true;
+            break;
         case SDLK_ESCAPE:
         case SDLK_BACKSPACE:
             keyboard_exit_ = true;
@@ -97,6 +100,7 @@ void Controller::handle(const SDL_Event& event) {
 
 void Controller::poll() {
     confirm_ = false;
+    favorite_ = false;
     exit_ = false;
     navigation_delta_ = 0;
 
@@ -146,7 +150,6 @@ void Controller::poll() {
 
                     uint32_t pressed = 0;
                     if (seed_) {
-                        // Do not turn a button held during reconnection into a new press.
                         seed_ = false;
                         down_ = held;
                         repeat_at_ = now + kInitialRepeatDelayMs;
@@ -162,6 +165,7 @@ void Controller::poll() {
                     }
 
                     if (pressed & ORBIS_PAD_BUTTON_CROSS) confirm_ = true;
+                    if (pressed & ORBIS_PAD_BUTTON_SQUARE) favorite_ = true;
                     if (pressed & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_OPTIONS))
                         exit_ = true;
 
@@ -177,13 +181,14 @@ void Controller::poll() {
         }
     }
 
-    // Keep keyboard navigation available for development and testing.
     if (keyboard_confirm_) confirm_ = true;
+    if (keyboard_favorite_) favorite_ = true;
     if (keyboard_exit_) exit_ = true;
     if (keyboard_navigation_ != 0 && navigation_delta_ == 0)
         navigation_delta_ = keyboard_navigation_;
 
     keyboard_confirm_ = false;
+    keyboard_favorite_ = false;
     keyboard_exit_ = false;
     keyboard_navigation_ = 0;
 }
