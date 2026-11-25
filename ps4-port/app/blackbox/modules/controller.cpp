@@ -42,13 +42,23 @@ void Controller::open() {
 
 void Controller::retry(uint64_t now) {
     retry_at_ = now + kReconnectDelayMs;
+    // UserService must be initialized before opening the controller.
+    if (!user_service_initialized_) {
+        OrbisUserServiceInitializeParams params{};
+        params.priority = ORBIS_KERNEL_PRIO_FIFO_LOWEST;
+        const int32_t user_rc = sceUserServiceInitialize(&params);
+        // 0x80960003 means another component already initialized the service.
+        if (user_rc != 0 && static_cast<uint32_t>(user_rc) != 0x80960003u) {
+            error_ = user_rc;
+            return;
+        }
+        user_service_initialized_ = true;
+        user_service_owned_ = (user_rc == 0);
+    }
     if (!pad_initialized_) {
         const int32_t rc = scePadInit();
         if (rc != 0) { error_ = rc; return; }
         pad_initialized_ = true;
-        OrbisUserServiceInitializeParams params = {ORBIS_KERNEL_PRIO_FIFO_LOWEST};
-        const int32_t user_rc = sceUserServiceInitialize(&params);
-        if (user_rc == 0) user_service_owned_ = true;
     }
     if (pad_handle_ >= 0) return;
     int32_t user = -1;
