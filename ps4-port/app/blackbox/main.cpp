@@ -34,10 +34,14 @@ int main(int, char**) {
             controller.handle(event);
         }
         controller.poll();
-        ui.controller_input(controller.navigation_delta(), controller.confirm_pressed(), controller.exit_requested(), controller.favorite_pressed());
+        if (controller.navigation_delta() != 0) ui.move_selection(controller.navigation_delta());
         if (controller.exit_requested() && !ui.back()) running = false;
         if (controller.favorite_pressed()) {
             ui.toggle_favorite();
+            storage.save();
+        }
+        if (controller.confirm_pressed()) {
+            ui.activate();
             storage.save();
         }
         ui.render();
