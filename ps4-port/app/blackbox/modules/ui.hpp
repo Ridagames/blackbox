@@ -38,6 +38,13 @@ private:
     Storage& storage_;
     int selected_ = 0;
     int selected_setting_ = 0;
+    bool controller_up_ = false;
+    bool controller_down_ = false;
+    bool controller_left_ = false;
+    bool controller_right_ = false;
+    bool controller_page_up_ = false;
+    bool controller_page_down_ = false;
+    bool controller_confirm_ = false;
     Page page_ = Page::Home;
     Page details_origin_ = Page::Catalog;
     Catalog catalog_;
