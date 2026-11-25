@@ -26,6 +26,7 @@ bool allowed_url(const std::string& url) {
 }
 struct HttpState {
     int net_pool = -1;
+    bool net_started = false;
     int ssl_context = -1;
     int http_context = -1;
     int template_id = -1;
@@ -40,6 +41,7 @@ void cleanup(HttpState& s) {
     if (s.ssl_context >= 0)
         reinterpret_cast<int32_t(*)(int32_t)>(&sceSslTerm)(s.ssl_context);
     if (s.net_pool >= 0) sceNetPoolDestroy(s.net_pool);
+    if (s.net_started) sceNetTerm();
 }
 bool initialize(HttpState& s) {
     if (sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_NET) < 0 ||
@@ -47,6 +49,7 @@ bool initialize(HttpState& s) {
         sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_SSL) < 0)
         return false;
     if (sceNetInit() < 0) return false;
+    s.net_started = true;
     s.net_pool = sceNetPoolCreate("BlackBoxNet", kNetPoolSize, 0);
     if (s.net_pool < 0) return false;
     s.ssl_context = sceSslInit(SSL_POOLSIZE);
