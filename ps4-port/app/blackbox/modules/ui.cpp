@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <sys/stat.h>
+#include <orbis/Pad.h>
 
 namespace blackbox {
 namespace {
@@ -116,6 +117,16 @@ void Ui::ensure_catalog_loaded() {
     std::string path = data_path_ + "catalog.json";
     if (!catalog_.load(path)) catalog_.load("/app0/data/catalog.json");
     catalog_loaded_ = true;
+}
+void Ui::handle_controller_buttons(uint32_t buttons) {
+    // Keep the original PS MTP Explorer input contract: the controller layer
+    // forwards the pressed-button bitmask; the UI decides what each button does.
+    if (buttons & ORBIS_PAD_BUTTON_UP) move_selection(-6);
+    else if (buttons & ORBIS_PAD_BUTTON_DOWN) move_selection(6);
+    else if (buttons & ORBIS_PAD_BUTTON_LEFT) move_selection(-1);
+    else if (buttons & ORBIS_PAD_BUTTON_RIGHT) move_selection(1);
+    else if (buttons & ORBIS_PAD_BUTTON_L1) move_selection(-18);
+    else if (buttons & ORBIS_PAD_BUTTON_R1) move_selection(18);
 }
 void Ui::move_selection(int delta) {
     if (delta == 0) return;
