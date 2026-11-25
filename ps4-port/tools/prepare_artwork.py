@@ -18,7 +18,8 @@ MAX_WORKERS = 12
 def fetch_cover(item, output_dir):
     title_id = "".join(c for c in str(item.get("titleId", "")) if c.isalnum() or c in "_-")
     url = item.get("cover") or item.get("coverFallback") or ""
-    if not title_id or not url.startswith("https://cdn.orbispatches.com/") and not url.startswith("https://raw.githubusercontent.com/"):
+    # Only the dedicated cover field is fetched; package/download URLs are never used.
+    if not title_id or not url.startswith("https://"):
         return False
     target = os.path.join(output_dir, title_id + ".bmp")
     if os.path.isfile(target) and os.path.getsize(target) > 1024:
@@ -34,6 +35,7 @@ def fetch_cover(item, output_dir):
         image.save(target, format="BMP")
         return True
     except Exception:
+        print("BLACKBOX cover failed: %s (%s)" % (title_id, url))
         return False
 
 def make_background(source, target):
