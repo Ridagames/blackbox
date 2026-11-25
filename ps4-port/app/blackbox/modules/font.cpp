@@ -3,6 +3,13 @@
 namespace blackbox {
 static const std::uint8_t* glyph(char c) {
     static const std::uint8_t blank[5] = {0,0,0,0,0};
+    static const std::uint8_t exclamation[5] = {0x00,0x00,0x5F,0x00,0x00};
+    static const std::uint8_t colon[5] = {0x00,0x36,0x36,0x00,0x00};
+    static const std::uint8_t period[5] = {0x00,0x60,0x60,0x00,0x00};
+    static const std::uint8_t dash[5] = {0x08,0x08,0x08,0x08,0x08};
+    static const std::uint8_t slash[5] = {0x60,0x18,0x06,0x01,0x00};
+    static const std::uint8_t question[5] = {0x02,0x01,0x51,0x09,0x06};
+    static const std::uint8_t star[5] = {0x14,0x08,0x3E,0x08,0x14};
     static const std::uint8_t letters[36][5] = {
         {0x7E,0x11,0x11,0x11,0x7E},{0x7F,0x49,0x49,0x49,0x36},
         {0x3E,0x41,0x41,0x41,0x22},{0x7F,0x41,0x41,0x22,0x1C},
@@ -24,6 +31,13 @@ static const std::uint8_t* glyph(char c) {
         {0x36,0x49,0x49,0x49,0x36},{0x06,0x49,0x49,0x29,0x1E}
     };
     if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+    if (c == '!') return exclamation;
+    if (c == ':') return colon;
+    if (c == '.') return period;
+    if (c == '-') return dash;
+    if (c == '/') return slash;
+    if (c == '?') return question;
+    if (c == '*') return star;
     if (c >= 'A' && c <= 'Z') return letters[c - 'A'];
     if (c >= '0' && c <= '9') return letters[26 + c - '0'];
     return blank;
@@ -31,8 +45,33 @@ static const std::uint8_t* glyph(char c) {
 void draw_text(SDL_Renderer* renderer, int x, int y, int scale,
                const std::string& text, SDL_Color color) {
     SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+    std::string ascii;
+    ascii.reserve(text.size());
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        if (c == 0xC3 && i + 1 < text.size()) {
+            const unsigned char next = static_cast<unsigned char>(text[++i]);
+            switch (next) {
+                case 0x80: case 0x81: case 0x82: case 0x84: ascii.push_back('A'); break;
+                case 0xA0: case 0xA1: case 0xA2: case 0xA4: ascii.push_back('A'); break;
+                case 0x87: ascii.push_back('C'); break;
+                case 0xA7: ascii.push_back('C'); break;
+                case 0x88: case 0x89: case 0x8A: case 0x8B: ascii.push_back('E'); break;
+                case 0xA8: case 0xA9: case 0xAA: case 0xAB: ascii.push_back('E'); break;
+                case 0x8C: case 0x8D: case 0x8E: case 0x8F: ascii.push_back('I'); break;
+                case 0xAC: case 0xAD: case 0xAE: case 0xAF: ascii.push_back('I'); break;
+                case 0x92: case 0x93: case 0x94: case 0x96: ascii.push_back('O'); break;
+                case 0xB2: case 0xB3: case 0xB4: case 0xB6: ascii.push_back('O'); break;
+                case 0x99: case 0x9A: case 0x9B: ascii.push_back('U'); break;
+                case 0xB9: case 0xBA: case 0xBB: ascii.push_back('U'); break;
+                default: ascii.push_back(' '); break;
+            }
+        } else {
+            ascii.push_back(c < 0x80 ? static_cast<char>(c) : ' ');
+        }
+    }
     int cursor = x;
-    for (char c : text) {
+    for (char c : ascii) {
         const auto* columns = glyph(c);
         for (int col = 0; col < 5; ++col) {
             for (int row = 0; row < 7; ++row) {
