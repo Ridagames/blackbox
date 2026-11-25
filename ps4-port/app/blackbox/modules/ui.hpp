@@ -2,7 +2,6 @@
 #include <SDL2/SDL.h>
 #include "catalog.hpp"
 #include "storage.hpp"
-#include <string>
 #include <cstddef>
 #include <string>
 #include <vector>
