@@ -34,6 +34,7 @@ int main(int, char**) {
             controller.handle(event);
         }
         controller.poll();
+        ui.set_controller_debug(controller.connected(), controller.last_error(), controller.raw_buttons(), controller.navigation_delta());
         if (controller.navigation_delta() != 0) ui.move_selection(controller.navigation_delta());
         if (controller.exit_requested() && !ui.back()) running = false;
         if (controller.favorite_pressed()) {
