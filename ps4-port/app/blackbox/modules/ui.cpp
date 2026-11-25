@@ -160,7 +160,7 @@ void Ui::activate() {
 
             std::string filename = entry.filename;
             for (char& ch : filename) {
-                if (ch == '/' || ch == '\\\\' || ch == ':' || ch == '\\n' || ch == '\\r')
+                if (ch == '/' || ch == '\\' || ch == ':' || ch == '\n' || ch == '\r')
                     ch = '_';
             }
             DownloadEntry request;
