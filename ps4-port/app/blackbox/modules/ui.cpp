@@ -79,10 +79,11 @@ Ui::~Ui() {
     for (auto& item : cover_cache_) if (item.second) SDL_DestroyTexture(item.second);
 }
 void Ui::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
-void Ui::set_controller_debug(bool connected, int32_t error, uint32_t buttons, int navigation) {
+void Ui::set_controller_debug(bool connected, int32_t error, uint32_t buttons, uint32_t pressed, int navigation) {
     controller_connected_ = connected;
     controller_error_ = error;
     controller_buttons_ = buttons;
+    controller_pressed_ = pressed;
     controller_navigation_ = navigation;
 }
 SDL_Texture* Ui::load_cover(const CatalogEntry& entry) {
@@ -404,10 +405,16 @@ void Ui::render() {
         case Page::Favorites: render_favorites(); break;
         case Page::Settings: render_settings(); break;
     }
-    ImGui::SetNextWindowPos(ImVec2(18, ImGui::GetIO().DisplaySize.y - 72), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.82f);
-    ImGui::Begin("##controller-debug", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    ImGui::Text("PAD %s  ERR 0x%08X  BTN 0x%08X  NAV %d", controller_connected_ ? "CONNECTED" : "WAITING", static_cast<unsigned int>(controller_error_), static_cast<unsigned int>(controller_buttons_), controller_navigation_);
+    // High-contrast diagnostic kept on-screen while testing controller/UI routing.
+    ImGui::SetNextWindowPos(ImVec2(18, 18), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.96f);
+    ImGui::Begin("BLACKBOX INPUT TEST", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    ImGui::TextColored(controller_connected_ ? ImVec4(0.2f,1.0f,0.35f,1.0f) : ImVec4(1.0f,0.35f,0.25f,1.0f), "PAD: %s", controller_connected_ ? "CONNECTED" : "WAITING");
+    ImGui::Text("ERROR: 0x%08X", static_cast<unsigned int>(controller_error_));
+    ImGui::Text("RAW BUTTONS: 0x%08X", static_cast<unsigned int>(controller_buttons_));
+    ImGui::Text("PRESSED: 0x%08X", static_cast<unsigned int>(controller_pressed_));
+    ImGui::Text("NAV DELTA: %d", controller_navigation_);
+    ImGui::Text("UI SELECTION: %u", static_cast<unsigned int>(selected_item_));
     ImGui::End();
     ImGui::Render();
     SDL_SetRenderDrawColor(renderer_, 5, 9, 17, 255); SDL_RenderClear(renderer_);
