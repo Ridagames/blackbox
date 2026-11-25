@@ -149,9 +149,7 @@ bool Ui::back() {
     return false;
 }
 void Ui::start_download(const CatalogEntry& entry) {
-    if (entry.commercial || entry.content_type != "homebrew") {
-        download_message_ = "Jeux commerciaux détecté ! Téléchargement annulé.";
-        return;
+
     }
     if (entry.download_url.empty() || entry.filename.empty()) {
         download_message_ = "Source homebrew indisponible.";
