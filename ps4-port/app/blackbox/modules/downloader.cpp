@@ -112,7 +112,8 @@ bool download_pkg(const DownloadEntry& entry, DownloadCallback callback) {
     }
     sceHttpSetConnectTimeOut(state.template_id, 30000000);
     sceHttpSetSendTimeOut(state.template_id, 30000000);
-    sceHttpSetRecvTimeOut(state.template_id, 60000000);
+    using RecvTimeoutFn = int32_t(*)(int32_t, uint32_t);
+    reinterpret_cast<RecvTimeoutFn>(&sceHttpSetRecvTimeOut)(state.template_id, 60000000);
 
     state.connection_id = sceHttpCreateConnectionWithURL(
         state.template_id, entry.url.c_str(), true);
