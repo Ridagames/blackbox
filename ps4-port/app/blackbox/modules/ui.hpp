@@ -4,14 +4,15 @@
 #include "storage.hpp"
 #include <cstddef>
 #include <string>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 namespace blackbox {
 class Ui {
 public:
-    Ui(SDL_Renderer* renderer, Storage& storage);
+    Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage);
     ~Ui();
+    void process_event(const SDL_Event& event);
     void render();
     void move_selection(int delta);
     void activate();
@@ -21,21 +22,17 @@ public:
 
 private:
     enum class Page { Home, Catalog, Details, Favorites, Settings };
-
     void ensure_catalog_loaded();
-    void load_cover(const CatalogEntry& entry);
-    void draw_texture(SDL_Texture* texture, const SDL_Rect& destination, Uint8 alpha = 255);
+    SDL_Texture* load_cover(const CatalogEntry& entry);
     std::vector<std::size_t> favorite_indices() const;
-    SDL_Color accent_color() const;
     void render_home();
     void render_catalog();
     void render_favorites();
     void render_details();
     void render_settings();
-    void render_empty_page(const std::string& title, const std::string& message);
-    void draw_header(const std::string& title, const std::string& subtitle);
-    void draw_footer(const std::string& hint);
+    void start_download(const CatalogEntry& entry);
 
+    SDL_Window* window_;
     SDL_Renderer* renderer_;
     Storage& storage_;
     int selected_ = 0;
@@ -49,10 +46,6 @@ private:
     std::size_t scroll_offset_ = 0;
     std::string download_message_;
     std::string data_path_;
-    std::string loaded_cover_id_;
-    SDL_Texture* background_texture_ = nullptr;
-    SDL_Texture* logo_texture_ = nullptr;
-    SDL_Texture* cover_texture_ = nullptr;
     std::unordered_map<std::string, SDL_Texture*> cover_cache_;
 };
 }
