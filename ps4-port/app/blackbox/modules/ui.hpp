@@ -13,7 +13,6 @@ public:
     Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage);
     ~Ui();
     void process_event(const SDL_Event& event);
-    void controller_input(int navigation, bool confirm, bool back, bool favorite);
     void render();
     void move_selection(int delta);
     void activate();
@@ -38,13 +37,7 @@ private:
     Storage& storage_;
     int selected_ = 0;
     int selected_setting_ = 0;
-    bool controller_up_ = false;
-    bool controller_down_ = false;
-    bool controller_left_ = false;
-    bool controller_right_ = false;
-    bool controller_page_up_ = false;
-    bool controller_page_down_ = false;
-    bool controller_confirm_ = false;
+    int selected_detail_action_ = 0;
     Page page_ = Page::Home;
     Page details_origin_ = Page::Catalog;
     Catalog catalog_;
