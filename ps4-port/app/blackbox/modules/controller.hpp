@@ -34,7 +34,8 @@ private:
     int pad_handle_ = -1;
     bool started_ = false;
     bool pad_initialized_ = false;
-    bool user_service_owned_ = false;\n    bool user_service_initialized_ = false;
+    bool user_service_owned_ = false;
+    bool user_service_initialized_ = false;
     bool connected_ = false;
     bool seed_ = true;
     int failures_ = 0;
