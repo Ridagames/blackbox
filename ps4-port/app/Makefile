@@ -35,7 +35,7 @@ prepare:
 	python3 ../tools/prepare_artwork.py --catalog data/catalog.json --assets ../../assets --output data
 	touch data/.artwork-ready
 
-sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx: | prepare
+sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx data/ui-background.bmp data/ui-logo.bmp data/.artwork-ready: | prepare
 	@test -s "$@"
 
 $(INTDIR)/%.o: $(PROJDIR)/%.cpp | prepare
@@ -66,7 +66,8 @@ pkg.gp4: eboot.bin sce_sys/about/right.sprx sce_sys/param.sfo sce_sys/icon0.png 
 	@echo '=== GENERATED GP4 PROJECT ==='
 	@sed -n '1,240p' $@
 	@echo '=== GP4 INPUT FILES ==='
-	@for file in $^; do test -s "$$file" || { echo "MISSING: $$file"; exit 1; }; done
+	@for file in $(filter-out data/.artwork-ready,$^); do test -s "$file" || { echo "MISSING: $file"; exit 1; }; done
+	@find data/covers -type f -name '*.bmp' -exec test -s {} \;
 
 $(CONTENT_ID).pkg: pkg.gp4
 	$(TOOLCHAIN)/bin/$(CDIR)/PkgTool.Core pkg_build $< .
