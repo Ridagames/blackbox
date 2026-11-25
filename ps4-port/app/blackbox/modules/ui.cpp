@@ -150,7 +150,7 @@ bool Ui::back() {
 }
 void Ui::start_download(const CatalogEntry& entry) {
 
-    }
+
     if (entry.download_url.empty() || entry.filename.empty()) {
         download_message_ = "Source homebrew indisponible.";
         return;
