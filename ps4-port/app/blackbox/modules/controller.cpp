@@ -96,18 +96,22 @@ void Controller::poll() {
         } else {
             OrbisPadData pad{};
             const int32_t rc = scePadReadState(pad_handle_, &pad);
-            if (rc < 0) {
+            if (rc != 0) {
                 error_ = rc;
                 connected_ = false;
                 down_ = 0;
                 seed_ = true;
-                const int32_t close_rc = scePadClose(pad_handle_);
-                if (close_rc == 0) pad_handle_ = -1;
+                scePadClose(pad_handle_);
+                // A failed read invalidates this handle; force a clean reopen.
+                pad_handle_ = -1;
                 retry_at_ = now + kReconnectDelayMs;
             } else if (!pad.connected) {
                 connected_ = false;
                 down_ = 0;
                 seed_ = true;
+                // Reopen after disconnect instead of polling a stale handle forever.
+                scePadClose(pad_handle_);
+                pad_handle_ = -1;
                 retry_at_ = now + kReconnectDelayMs;
             } else {
                 connected_ = true;
