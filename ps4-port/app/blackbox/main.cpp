@@ -18,6 +18,7 @@ int main(int, char**) {
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     if (!renderer) { SDL_DestroyWindow(window); SDL_Quit(); return 3; }
 
+    {
     blackbox::Controller controller;
     blackbox::Storage storage;
     storage.load();
@@ -50,6 +51,7 @@ int main(int, char**) {
     }
     storage.set_last_section(ui.selected_section());
     storage.save();
+    }
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
