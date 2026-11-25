@@ -23,7 +23,7 @@ int main(int, char**) {
     blackbox::Storage storage;
     storage.load();
     blackbox::Ui ui(window, renderer, storage);
-    ui.move_selection(storage.last_section());
+    // Catalogue is the startup screen; begin on its first title.
 
     bool running = true;
     while (running) {
