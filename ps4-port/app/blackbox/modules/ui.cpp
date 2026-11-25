@@ -82,9 +82,9 @@ void Ui::activate() {
         if (selected_item_ < entries.size()) {
             const CatalogEntry& entry = entries[selected_item_];
             if (entry.commercial) {
-                download_message_ = "Jeux commerciaux detecte ! Telechargement annule.";
+                download_message_ = "Jeux commerciaux détecté ! Téléchargement annulé.";
             } else {
-                download_message_ = "Homebrew detecte : source autorisee requise.";
+                download_message_ = "Homebrew détecté : source autorisée requise.";
             }
         }
     } else if (page_ == Page::Home) {
