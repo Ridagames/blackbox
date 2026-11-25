@@ -125,7 +125,7 @@ void Ui::move_selection(int delta) {
         const auto& entries = catalog_.entries();
         std::vector<std::size_t> visible;
         for (std::size_t i=0;i<entries.size();++i)
-            if (search_query_[0]=='\\0' || entries[i].title.find(search_query_)!=std::string::npos ||
+            if (search_query_[0]=='\0' || entries[i].title.find(search_query_)!=std::string::npos ||
                 entries[i].title_id.find(search_query_)!=std::string::npos) visible.push_back(i);
         if (!visible.empty()) {
             auto it=std::find(visible.begin(),visible.end(),selected_item_);
@@ -228,17 +228,17 @@ void Ui::render_catalog() {
     std::vector<std::size_t> visible;
     visible.reserve(entries.size());
     for (std::size_t i=0;i<entries.size();++i)
-        if (search_query_[0]=='\\0' || entries[i].title.find(search_query_)!=std::string::npos ||
+        if (search_query_[0]=='\0' || entries[i].title.find(search_query_)!=std::string::npos ||
             entries[i].title_id.find(search_query_)!=std::string::npos) visible.push_back(i);
     ImGui::TextColored(accent(storage_.accent_theme()),"BLACKBOX"); ImGui::SameLine(); ImGui::Text(" / PS4 CATALOGUE");
     ImGui::SameLine(ImGui::GetWindowWidth()-280); ImGui::TextDisabled("%u / %u TITLES",(unsigned)visible.size(),(unsigned)entries.size());
     ImGui::Separator();
     ImGui::SetNextItemWidth(520.0f);
     ImGui::InputTextWithHint("##catalog-search","Search a game or title ID...",search_query_,sizeof(search_query_));
-    ImGui::SameLine(); if(ImGui::Button("CLEAR",ImVec2(90,34))) search_query_[0]='\\0';
+    ImGui::SameLine(); if(ImGui::Button("CLEAR",ImVec2(90,34))) search_query_[0]='\0';
     visible.clear();
     for (std::size_t i=0;i<entries.size();++i)
-        if (search_query_[0]=='\\0' || entries[i].title.find(search_query_)!=std::string::npos ||
+        if (search_query_[0]=='\0' || entries[i].title.find(search_query_)!=std::string::npos ||
             entries[i].title_id.find(search_query_)!=std::string::npos) visible.push_back(i);
     if (!visible.empty() && std::find(visible.begin(),visible.end(),selected_item_)==visible.end())
         selected_item_=visible.front();
