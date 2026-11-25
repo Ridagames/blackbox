@@ -15,6 +15,8 @@ struct CatalogEntry {
     std::string cover;
     std::string hero;
     std::uint64_t size_bytes = 0;
+    // Fail closed: entries are commercial unless the catalogue explicitly marks them as homebrew.
+    bool commercial = true;
 };
 class Catalog {
 public:
