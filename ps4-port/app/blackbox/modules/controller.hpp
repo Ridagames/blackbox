@@ -23,21 +23,13 @@ public:
     uint32_t pressed_buttons() const { return pressed_buttons_; }
 
 private:
-    void open();
     void retry(uint64_t now);
     void close();
 
-    SDL_GameController* sdl_controller_ = nullptr;
-    uint32_t sdl_down_ = 0;
-    uint64_t sdl_repeat_at_ = 0;
-    bool sdl_confirm_down_ = false;
-    bool sdl_favorite_down_ = false;
-    bool sdl_exit_down_ = false;
     int pad_handle_ = -1;
     bool started_ = false;
     bool pad_initialized_ = false;
     bool user_service_owned_ = false;
-    bool user_service_initialized_ = false;
     bool connected_ = false;
     bool seed_ = true;
     int failures_ = 0;
