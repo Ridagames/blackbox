@@ -1,8 +1,6 @@
 /*
  * DualShock 4 input for BLACKBOX PS4.
- * Controller polling adapted from nueex/ps-mtp-explorer.
- * Original project: https://github.com/nueex/ps-mtp-explorer
- * Copyright (C) 2026 nueex; adaptation for BLACKBOX.
+ * Native input flow follows nueex/ps-mtp-explorer/src/ps4/controller.c.
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "controller.hpp"
@@ -33,12 +31,6 @@ Controller::Controller() {
 
 Controller::~Controller() { close(); }
 
-void Controller::open() {
-    started_ = true;
-    seed_ = true;
-    retry(input_now());
-}
-
 void Controller::retry(uint64_t now) {
     int32_t user = -1;
     int32_t rc;
@@ -46,25 +38,20 @@ void Controller::retry(uint64_t now) {
     params.priority = ORBIS_KERNEL_PRIO_FIFO_LOWEST;
     retry_at_ = now + kReconnectDelayMs;
 
-    // Keep the same native initialization sequence as PS MTP Explorer.
     if (!pad_initialized_) {
         rc = scePadInit();
-        if (rc != 0) { error_ = rc; return; }
+        if (rc < 0) { error_ = rc; return; }
         pad_initialized_ = true;
-    }
-    if (!user_service_initialized_) {
         rc = sceUserServiceInitialize(&params);
         if (rc == 0) user_service_owned_ = true;
-        else if (static_cast<uint32_t>(rc) != 0x80960003u) {
-            error_ = rc;
-            return;
-        }
+        // Match PS MTP Explorer: an already-initialized user service does
+        // not prevent querying the active user and opening the controller.
         user_service_initialized_ = true;
     }
     if (pad_handle_ >= 0) return;
 
     rc = sceUserServiceGetInitialUser(&user);
-    if (rc != 0) { error_ = rc; return; }
+    if (rc < 0) { error_ = rc; return; }
     pad_handle_ = scePadOpen(user, 0, 0, nullptr);
     seed_ = true;
     down_ = 0;
@@ -99,25 +86,26 @@ void Controller::poll() {
             OrbisPadData pad{};
             const int32_t rc = scePadReadState(pad_handle_, &pad);
 
-            // scePadReadState returns zero on success; every nonzero result is a failure.
-            if (rc != 0) {
+            // Match the reference implementation: negative values are errors.
+            if (rc < 0) {
                 error_ = rc;
                 connected_ = false;
                 raw_buttons_ = 0;
                 pressed_buttons_ = 0;
                 down_ = 0;
                 seed_ = true;
-                if (scePadClose(pad_handle_) == 0) pad_handle_ = -1;
+                if (++failures_ >= 3) {
+                    const int32_t close_rc = scePadClose(pad_handle_);
+                    if (close_rc == 0) pad_handle_ = -1;
+                    failures_ = 0;
+                }
                 retry_at_ = now + kReconnectDelayMs;
-                failures_++;
             } else if (!pad.connected) {
                 connected_ = false;
                 raw_buttons_ = 0;
                 pressed_buttons_ = 0;
                 down_ = 0;
                 seed_ = true;
-                // A disconnected pad handle must be reopened, not polled forever.
-                if (scePadClose(pad_handle_) == 0) pad_handle_ = -1;
                 retry_at_ = now + kReconnectDelayMs;
             } else {
                 connected_ = true;
@@ -125,9 +113,11 @@ void Controller::poll() {
                 failures_ = 0;
                 retry_at_ = 0;
 
-                // scePadReadState supplies button state only, not analog stick data.
-                // Do not inspect pad.leftStick here: it is not populated by this API.
-                const uint32_t held = pad.buttons;
+                // Same input source and analog thresholds as PS MTP Explorer.
+                uint32_t held = pad.buttons;
+                if (pad.leftStick.y < 64) held |= ORBIS_PAD_BUTTON_UP;
+                if (pad.leftStick.y > 192) held |= ORBIS_PAD_BUTTON_DOWN;
+
                 const uint32_t nav_mask = ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN |
                     ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT |
                     ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1;
