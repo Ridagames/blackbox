@@ -83,12 +83,20 @@ Ui::~Ui() {
     for (auto& item : cover_cache_) if (item.second) SDL_DestroyTexture(item.second);
 }
 void Ui::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
-void Ui::set_controller_debug(bool connected, int32_t error, uint32_t buttons, uint32_t pressed, int navigation) {
+void Ui::set_controller_debug(bool connected, int32_t error, uint32_t buttons, uint32_t pressed, int navigation,
+                              int32_t read_result, bool sample_connected, uint32_t sample_buttons,
+                              int32_t pad_handle, int32_t initial_user, int32_t user_service_result) {
     controller_connected_ = connected;
     controller_error_ = error;
     controller_buttons_ = buttons;
     controller_pressed_ = pressed;
     controller_navigation_ = navigation;
+    controller_read_result_ = read_result;
+    controller_sample_connected_ = sample_connected;
+    controller_sample_buttons_ = sample_buttons;
+    controller_pad_handle_ = pad_handle;
+    controller_initial_user_ = initial_user;
+    controller_user_service_result_ = user_service_result;
 }
 SDL_Texture* Ui::load_cover(const CatalogEntry& entry) {
     const auto found = cover_cache_.find(entry.title_id);
@@ -454,6 +462,10 @@ void Ui::render() {
     ImGui::Text("RAW BUTTONS: 0x%08X", static_cast<unsigned int>(controller_buttons_));
     ImGui::Text("PRESSED: 0x%08X", static_cast<unsigned int>(controller_pressed_));
     ImGui::Text("NAV DELTA: %d", controller_navigation_);
+    ImGui::Text("READ: %d   PAD.CONNECTED: %d   SAMPLE: 0x%08X", controller_read_result_,
+        controller_sample_connected_ ? 1 : 0, static_cast<unsigned int>(controller_sample_buttons_));
+    ImGui::Text("HANDLE: %d   USER: %d   USER SERVICE: %d", controller_pad_handle_,
+        controller_initial_user_, controller_user_service_result_);
     ImGui::Text("UI SELECTION: %u", static_cast<unsigned int>(selected_item_));
     ImGui::End();
     ImGui::Render();
