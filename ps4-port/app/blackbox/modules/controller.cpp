@@ -150,7 +150,6 @@ void Controller::poll() {
                         else if (pressed & ORBIS_PAD_BUTTON_L1) navigation_delta_ = -18;
                         else if (pressed & ORBIS_PAD_BUTTON_R1) navigation_delta_ = 18;
                     }
-                    raw_buttons_ = held;
                 }
             }
         }
