@@ -48,6 +48,10 @@ Ui::Ui(SDL_Window* window, SDL_Renderer* renderer, Storage& storage)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
+    // Render text at a native 22 px glyph size for a sharper 1080p interface.
+    ImFontConfig fontConfig{};
+    fontConfig.SizePixels = 22.0f;
+    io.Fonts->AddFontDefault(&fontConfig);
     // Controller navigation is handled by the explicit BLACKBOX selection model.
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
