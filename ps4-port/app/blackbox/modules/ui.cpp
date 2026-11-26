@@ -124,35 +124,61 @@ void Ui::ensure_catalog_loaded() {
     catalog_loaded_ = true;
 }
 void Ui::handle_controller_buttons(uint32_t buttons) {
-    // Keep the original PS MTP Explorer input contract: the controller layer
-    // forwards the pressed-button bitmask; the UI decides what each button does.
-    if (buttons & ORBIS_PAD_BUTTON_UP) move_selection(-6);
-    else if (buttons & ORBIS_PAD_BUTTON_DOWN) move_selection(6);
-    else if (buttons & ORBIS_PAD_BUTTON_LEFT) move_selection(-1);
-    else if (buttons & ORBIS_PAD_BUTTON_RIGHT) move_selection(1);
-    else if (buttons & ORBIS_PAD_BUTTON_L1) move_selection(-18);
-    else if (buttons & ORBIS_PAD_BUTTON_R1) move_selection(18);
+    // MTP Explorer's navigation contract: one prioritized direction per
+    // sample, with repeat timing handled by Controller::poll().
+    // The BLACKBOX catalogue is a 6-column grid with 18 items per page.
+    if (page_ == Page::Catalog) {
+        if (buttons & ORBIS_PAD_BUTTON_UP) move_selection(-6);
+        else if (buttons & ORBIS_PAD_BUTTON_DOWN) move_selection(6);
+        else if (buttons & ORBIS_PAD_BUTTON_LEFT) move_selection(-1);
+        else if (buttons & ORBIS_PAD_BUTTON_RIGHT) move_selection(1);
+        else if (buttons & ORBIS_PAD_BUTTON_L1) move_selection(-18);
+        else if (buttons & ORBIS_PAD_BUTTON_R1) move_selection(18);
+        return;
+    }
+
+    // MTP Explorer's list navigation is one item per D-pad press and a
+    // full-page jump on L1/R1. BLACKBOX favourites are a vertical list.
+    if (page_ == Page::Favorites) {
+        if (buttons & ORBIS_PAD_BUTTON_UP) move_selection(-1);
+        else if (buttons & ORBIS_PAD_BUTTON_DOWN) move_selection(1);
+        else if (buttons & ORBIS_PAD_BUTTON_LEFT) move_selection(-1);
+        else if (buttons & ORBIS_PAD_BUTTON_RIGHT) move_selection(1);
+        else if (buttons & ORBIS_PAD_BUTTON_L1) move_selection(-16);
+        else if (buttons & ORBIS_PAD_BUTTON_R1) move_selection(16);
+        return;
+    }
+
+    // Menus and detail actions follow MTP Explorer's vertical selection model.
+    if (page_ == Page::Home || page_ == Page::Settings || page_ == Page::Details) {
+        if (buttons & ORBIS_PAD_BUTTON_UP) move_selection(-1);
+        else if (buttons & ORBIS_PAD_BUTTON_DOWN) move_selection(1);
+        else if (buttons & ORBIS_PAD_BUTTON_LEFT) move_selection(-1);
+        else if (buttons & ORBIS_PAD_BUTTON_RIGHT) move_selection(1);
+        else if (buttons & ORBIS_PAD_BUTTON_L1) move_selection(-1);
+        else if (buttons & ORBIS_PAD_BUTTON_R1) move_selection(1);
+    }
 }
 void Ui::move_selection(int delta) {
     if (delta == 0) return;
-    const int direction = delta < 0 ? -1 : 1;
     if (page_ == Page::Home) {
-        selected_ = std::max(0, std::min(2, selected_ + direction));
+        selected_ = std::max(0, std::min(2, selected_ + delta));
         return;
     }
     if (page_ == Page::Settings) {
-        selected_setting_ = std::max(0, std::min(1, selected_setting_ + direction));
+        selected_setting_ = std::max(0, std::min(1, selected_setting_ + delta));
         return;
     }
     if (page_ == Page::Details) {
-        selected_detail_action_ = delta < 0 ? 0 : 1;
+        selected_detail_action_ = std::max(0, std::min(1, selected_detail_action_ + delta));
         return;
     }
     if (page_ == Page::Favorites) {
         const auto ids = favorite_indices();
         if (ids.empty()) { selected_favorite_ = 0; return; }
         const int last = static_cast<int>(ids.size()) - 1;
-        selected_favorite_ = static_cast<std::size_t>(std::max(0, std::min(last, static_cast<int>(selected_favorite_) + direction)));
+        const int next = std::max(0, std::min(last, static_cast<int>(selected_favorite_) + delta));
+        selected_favorite_ = static_cast<std::size_t>(next);
         selected_item_ = ids[selected_favorite_];
         return;
     }
@@ -161,12 +187,11 @@ void Ui::move_selection(int delta) {
         std::vector<std::size_t> visible;
         visible.reserve(entries.size());
         for (std::size_t i = 0; i < entries.size(); ++i)
-            if (search_query_[0] == '\0' || entries[i].title.find(search_query_) != std::string::npos ||
+            if (search_query_[0] == '\\0' || entries[i].title.find(search_query_) != std::string::npos ||
                 entries[i].title_id.find(search_query_) != std::string::npos) visible.push_back(i);
         if (visible.empty()) return;
         auto it = std::find(visible.begin(), visible.end(), selected_item_);
         int pos = it == visible.end() ? 0 : static_cast<int>(it - visible.begin());
-        // D-pad up/down = one row (six covers); left/right = one cover; L1/R1 = one page.
         pos = std::max(0, std::min(static_cast<int>(visible.size()) - 1, pos + delta));
         selected_item_ = visible[static_cast<std::size_t>(pos)];
     }
