@@ -46,7 +46,6 @@ void Controller::retry(uint64_t now) {
         if (rc == 0) user_service_owned_ = true;
         // Match PS MTP Explorer: an already-initialized user service does
         // not prevent querying the active user and opening the controller.
-        user_service_initialized_ = true;
     }
     if (pad_handle_ >= 0) return;
 
@@ -173,7 +172,6 @@ void Controller::close() {
     if (user_service_owned_ && pad_handle_ < 0) {
         if (sceUserServiceTerminate() == 0) {
             user_service_owned_ = false;
-            user_service_initialized_ = false;
         }
     }
 }
