@@ -18,15 +18,7 @@ public:
     bool exit_requested() const { return exit_; }
     int navigation_delta() const { return navigation_delta_; }
     bool connected() const { return connected_; }
-    int32_t last_error() const { return error_; }
-    uint32_t raw_buttons() const { return raw_buttons_; }
     uint32_t pressed_buttons() const { return pressed_buttons_; }
-    int32_t read_result() const { return read_result_; }
-    int32_t user_service_result() const { return user_service_result_; }
-    int32_t pad_open_result() const { return pad_open_result_; }
-    int32_t initial_user() const { return initial_user_; }
-    bool sample_connected() const { return sample_connected_; }
-    uint32_t sample_buttons() const { return sample_buttons_; }
 
 private:
     void retry(uint64_t now);
@@ -36,18 +28,12 @@ private:
     bool started_ = false;
     bool pad_initialized_ = false;
     bool user_service_owned_ = false;
+    bool user_service_initialized_ = false;
     bool connected_ = false;
     bool seed_ = true;
     int failures_ = 0;
     int32_t error_ = 0;
-    int32_t read_result_ = 0;
-    int32_t user_service_result_ = 0;
-    int32_t pad_open_result_ = -1;
-    int32_t initial_user_ = -1;
-    bool sample_connected_ = false;
-    uint32_t sample_buttons_ = 0;
     uint32_t down_ = 0;
-    uint32_t raw_buttons_ = 0;
     uint32_t pressed_buttons_ = 0;
     uint64_t retry_at_ = 0;
     uint64_t repeat_at_ = 0;
