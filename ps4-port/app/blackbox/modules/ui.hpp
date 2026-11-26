@@ -14,7 +14,9 @@ public:
     ~Ui();
     void process_event(const SDL_Event& event);
     void render();
-    void set_controller_debug(bool connected, int32_t error, uint32_t buttons, uint32_t pressed, int navigation);
+    void set_controller_debug(bool connected, int32_t error, uint32_t buttons, uint32_t pressed, int navigation,
+                              int32_t read_result, bool sample_connected, uint32_t sample_buttons,
+                              int32_t pad_handle, int32_t initial_user, int32_t user_service_result);
     void move_selection(int delta);
     void handle_controller_buttons(uint32_t pressed_buttons);
     void activate();
@@ -39,6 +41,12 @@ private:
     uint32_t controller_buttons_ = 0;
     uint32_t controller_pressed_ = 0;
     int controller_navigation_ = 0;
+    int32_t controller_read_result_ = 0;
+    bool controller_sample_connected_ = false;
+    uint32_t controller_sample_buttons_ = 0;
+    int32_t controller_pad_handle_ = -1;
+    int32_t controller_initial_user_ = -1;
+    int32_t controller_user_service_result_ = 0;
     SDL_Window* window_;
     SDL_Renderer* renderer_;
     Storage& storage_;
