@@ -1,7 +1,8 @@
 /*
  * DualShock 4 input for BLACKBOX PS4.
- * Adapted from the controller handling in nueex/ps-mtp-explorer.
+ * Controller polling adapted directly from nueex/ps-mtp-explorer.
  * Original project: https://github.com/nueex/ps-mtp-explorer
+ * Copyright (C) 2026 nueex; adaptation for BLACKBOX.
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "controller.hpp"
@@ -9,16 +10,12 @@
 #include <orbis/Pad.h>
 #include <orbis/UserService.h>
 #include <time.h>
-#include <SDL2/SDL_gamecontroller.h>
 
 namespace blackbox {
 namespace {
 constexpr uint64_t kReconnectDelayMs = 500;
-constexpr uint64_t kInitialRepeatDelayMs = 300;
-constexpr uint64_t kRepeatIntervalMs = 85;
-constexpr uint8_t kStickLow = 64;
-constexpr uint8_t kStickHigh = 192;
-constexpr int16_t kSdlStickThreshold = 12000;
+constexpr uint64_t kInitialRepeatDelayMs = 360;
+constexpr uint64_t kRepeatIntervalMs = 90;
 
 uint64_t input_now() {
     struct timespec ts{};
@@ -28,44 +25,49 @@ uint64_t input_now() {
 }
 }
 
-Controller::Controller() { SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK); open(); }
+Controller::Controller() {
+    // Same ownership model as PS MTP Explorer: only scePad owns the DS4 port.
+    // Do not initialize SDL's GameController subsystem or open the pad through SDL.
+    started_ = true;
+    seed_ = true;
+    retry(input_now());
+}
+
 Controller::~Controller() { close(); }
 
 void Controller::open() {
     started_ = true;
-    if (SDL_NumJoysticks() > 0) {
-        for (int i = 0; i < SDL_NumJoysticks(); ++i) {
-            if (SDL_IsGameController(i)) { sdl_controller_ = SDL_GameControllerOpen(i); if (sdl_controller_) break; }
-        }
-    }
     seed_ = true;
     retry(input_now());
 }
 
 void Controller::retry(uint64_t now) {
+    int32_t user = -1;
+    int32_t rc;
+    OrbisUserServiceInitializeParams params{};
+    params.priority = ORBIS_KERNEL_PRIO_FIFO_LOWEST;
     retry_at_ = now + kReconnectDelayMs;
-    // UserService must be initialized before opening the controller.
-    if (!user_service_initialized_) {
-        OrbisUserServiceInitializeParams params{};
-        params.priority = ORBIS_KERNEL_PRIO_FIFO_LOWEST;
-        const int32_t user_rc = sceUserServiceInitialize(&params);
-        // 0x80960003 means another component already initialized the service.
-        if (user_rc != 0 && static_cast<uint32_t>(user_rc) != 0x80960003u) {
-            error_ = user_rc;
-            return;
-        }
-        user_service_initialized_ = true;
-        user_service_owned_ = (user_rc == 0);
-    }
+
+    // Keep the same initialization order as PS MTP Explorer.
     if (!pad_initialized_) {
-        const int32_t rc = scePadInit();
+        rc = scePadInit();
         if (rc != 0) { error_ = rc; return; }
         pad_initialized_ = true;
     }
+    if (!user_service_initialized_) {
+        rc = sceUserServiceInitialize(&params);
+        if (rc == 0) user_service_owned_ = true;
+        // 0x80960003 means another component already initialized UserService.
+        else if (static_cast<uint32_t>(rc) != 0x80960003u) {
+            error_ = rc;
+            return;
+        }
+        user_service_initialized_ = true;
+    }
     if (pad_handle_ >= 0) return;
-    int32_t user = -1;
-    const int32_t user_rc = sceUserServiceGetInitialUser(&user);
-    if (user_rc != 0) { error_ = user_rc; return; }
+
+    rc = sceUserServiceGetInitialUser(&user);
+    if (rc != 0) { error_ = rc; return; }
     pad_handle_ = scePadOpen(user, 0, 0, nullptr);
     seed_ = true;
     down_ = 0;
@@ -99,109 +101,66 @@ void Controller::poll() {
         } else {
             OrbisPadData pad{};
             const int32_t rc = scePadReadState(pad_handle_, &pad);
-            if (rc != 0) {
+            if (rc < 0) {
                 error_ = rc;
                 connected_ = false;
                 down_ = 0;
                 seed_ = true;
-                scePadClose(pad_handle_);
-                // A failed read invalidates this handle; force a clean reopen.
-                pad_handle_ = -1;
                 retry_at_ = now + kReconnectDelayMs;
-            } else if (!pad.connected) {
-                connected_ = false;
-                down_ = 0;
-                seed_ = true;
-                // Reopen after disconnect instead of polling a stale handle forever.
-                scePadClose(pad_handle_);
-                pad_handle_ = -1;
-                retry_at_ = now + kReconnectDelayMs;
-            } else {
-                connected_ = true;
-                error_ = 0;
-                raw_buttons_ = pad.buttons;
-                retry_at_ = 0;
-                uint32_t held = pad.buttons;
-                if (pad.leftStick.x < kStickLow) held |= ORBIS_PAD_BUTTON_LEFT;
-                if (pad.leftStick.x > kStickHigh) held |= ORBIS_PAD_BUTTON_RIGHT;
-                if (pad.leftStick.y < kStickLow) held |= ORBIS_PAD_BUTTON_UP;
-                if (pad.leftStick.y > kStickHigh) held |= ORBIS_PAD_BUTTON_DOWN;
-
-                const uint32_t nav_mask = ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN |
-                    ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT;
-                uint32_t pressed = 0;
-                if (seed_) {
-                    seed_ = false;
-                    down_ = held;
-                    repeat_at_ = now + kInitialRepeatDelayMs;
-                } else {
-                    pressed = held & ~down_;
-                    if (pressed & nav_mask) repeat_at_ = now + kInitialRepeatDelayMs;
-                    else if ((held & nav_mask) && now >= repeat_at_) {
-                        pressed |= held & nav_mask;
-                        repeat_at_ = now + kRepeatIntervalMs;
-                    }
-                    down_ = held;
+                if (++failures_ >= 3) {
+                    const int32_t close_rc = scePadClose(pad_handle_);
+                    if (close_rc == 0) pad_handle_ = -1;
+                    failures_ = 0;
                 }
+            } else {
+                error_ = 0;
+                failures_ = 0;
+                if (!pad.connected) {
+                    connected_ = false;
+                    down_ = 0;
+                    seed_ = true;
+                    retry_at_ = now + kReconnectDelayMs;
+                } else {
+                    connected_ = true;
+                    retry_at_ = 0;
+                    uint32_t held = pad.buttons;
+                    if (pad.leftStick.y < 64) held |= ORBIS_PAD_BUTTON_UP;
+                    if (pad.leftStick.y > 192) held |= ORBIS_PAD_BUTTON_DOWN;
 
-                pressed_buttons_ = pressed;
-                if (pressed & ORBIS_PAD_BUTTON_CROSS) confirm_ = true;
-                if (pressed & ORBIS_PAD_BUTTON_SQUARE) favorite_ = true;
-                if (pressed & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_OPTIONS))
-                    exit_ = true;
+                    const uint32_t nav_mask = ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN |
+                        ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT |
+                        ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1;
+                    uint32_t pressed = 0;
+                    if (seed_) {
+                        seed_ = false;
+                        down_ = held;
+                        repeat_at_ = now + kInitialRepeatDelayMs;
+                    } else {
+                        pressed = held & ~down_;
+                        if (pressed & nav_mask) repeat_at_ = now + kInitialRepeatDelayMs;
+                        else if (nav_mask & held && now >= repeat_at_) {
+                            pressed |= held & nav_mask;
+                            repeat_at_ = now + kRepeatIntervalMs;
+                        }
+                        down_ = held;
+                    }
 
-                // Catalogue is a six-column grid: vertical movement skips one row.
-                if (pressed & ORBIS_PAD_BUTTON_UP) navigation_delta_ = -6;
-                else if (pressed & ORBIS_PAD_BUTTON_DOWN) navigation_delta_ = 6;
-                else if (pressed & ORBIS_PAD_BUTTON_LEFT) navigation_delta_ = -1;
-                else if (pressed & ORBIS_PAD_BUTTON_RIGHT) navigation_delta_ = 1;
-                else if (pressed & ORBIS_PAD_BUTTON_L1) navigation_delta_ = -18;
-                else if (pressed & ORBIS_PAD_BUTTON_R1) navigation_delta_ = 18;
+                    raw_buttons_ = pad.buttons;
+                    pressed_buttons_ = pressed;
+                    if (pressed & ORBIS_PAD_BUTTON_CROSS) confirm_ = true;
+                    if (pressed & ORBIS_PAD_BUTTON_SQUARE) favorite_ = true;
+                    if (pressed & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_OPTIONS))
+                        exit_ = true;
+
+                    if (pressed & ORBIS_PAD_BUTTON_UP) navigation_delta_ = -6;
+                    else if (pressed & ORBIS_PAD_BUTTON_DOWN) navigation_delta_ = 6;
+                    else if (pressed & ORBIS_PAD_BUTTON_LEFT) navigation_delta_ = -1;
+                    else if (pressed & ORBIS_PAD_BUTTON_RIGHT) navigation_delta_ = 1;
+                    else if (pressed & ORBIS_PAD_BUTTON_L1) navigation_delta_ = -18;
+                    else if (pressed & ORBIS_PAD_BUTTON_R1) navigation_delta_ = 18;
+                }
             }
         }
-    }
-
-    // SDL fallback: used when the native scePad path is unavailable.
-    // It supports DS4 mappings exposed by SDL without changing the native path.
-    if (sdl_controller_ && SDL_GameControllerGetAttached(sdl_controller_)) {
-        SDL_GameControllerUpdate();
-        const auto button = [this](SDL_GameControllerButton b) {
-            return SDL_GameControllerGetButton(sdl_controller_, b) != 0;
-        };
-        const Sint16 lx = SDL_GameControllerGetAxis(sdl_controller_, SDL_CONTROLLER_AXIS_LEFTX);
-        const Sint16 ly = SDL_GameControllerGetAxis(sdl_controller_, SDL_CONTROLLER_AXIS_LEFTY);
-        uint32_t held = 0;
-        if (button(SDL_CONTROLLER_BUTTON_DPAD_UP) || ly < -kSdlStickThreshold) held |= ORBIS_PAD_BUTTON_UP;
-        if (button(SDL_CONTROLLER_BUTTON_DPAD_DOWN) || ly > kSdlStickThreshold) held |= ORBIS_PAD_BUTTON_DOWN;
-        if (button(SDL_CONTROLLER_BUTTON_DPAD_LEFT) || lx < -kSdlStickThreshold) held |= ORBIS_PAD_BUTTON_LEFT;
-        if (button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || lx > kSdlStickThreshold) held |= ORBIS_PAD_BUTTON_RIGHT;
-        const uint32_t nav_mask = ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN |
-            ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT;
-        uint32_t pressed = held & ~sdl_down_;
-        if (pressed & nav_mask) sdl_repeat_at_ = now + kInitialRepeatDelayMs;
-        else if ((held & nav_mask) && now >= sdl_repeat_at_) {
-            pressed |= held & nav_mask;
-            sdl_repeat_at_ = now + kRepeatIntervalMs;
-        }
-        sdl_down_ = held;
-        pressed_buttons_ |= pressed;
-        if (button(SDL_CONTROLLER_BUTTON_A) && !sdl_confirm_down_) confirm_ = true;
-        sdl_confirm_down_ = button(SDL_CONTROLLER_BUTTON_A);
-        if (button(SDL_CONTROLLER_BUTTON_X) && !sdl_favorite_down_) favorite_ = true;
-        sdl_favorite_down_ = button(SDL_CONTROLLER_BUTTON_X);
-        if ((button(SDL_CONTROLLER_BUTTON_B) && !sdl_exit_down_) ||
-            (button(SDL_CONTROLLER_BUTTON_START) && !sdl_exit_down_)) exit_ = true;
-        sdl_exit_down_ = button(SDL_CONTROLLER_BUTTON_B) || button(SDL_CONTROLLER_BUTTON_START);
-        // Keep native scePad navigation when present; SDL supplies a second input path.
-        if (navigation_delta_ == 0) {
-            if (pressed & ORBIS_PAD_BUTTON_UP) navigation_delta_ = -6;
-            else if (pressed & ORBIS_PAD_BUTTON_DOWN) navigation_delta_ = 6;
-            else if (pressed & ORBIS_PAD_BUTTON_LEFT) navigation_delta_ = -1;
-            else if (pressed & ORBIS_PAD_BUTTON_RIGHT) navigation_delta_ = 1;
-        }
-    } else {
-        sdl_down_ = 0;
-        sdl_confirm_down_ = sdl_favorite_down_ = sdl_exit_down_ = false;
     }
 
     if (keyboard_confirm_) confirm_ = true;
@@ -215,15 +174,16 @@ void Controller::poll() {
 
 void Controller::close() {
     started_ = false;
-    if (sdl_controller_) { SDL_GameControllerClose(sdl_controller_); sdl_controller_ = nullptr; }
-    SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
     connected_ = false;
     down_ = 0;
     if (pad_handle_ >= 0) {
         if (scePadClose(pad_handle_) == 0) pad_handle_ = -1;
     }
     if (user_service_owned_ && pad_handle_ < 0) {
-        if (sceUserServiceTerminate() == 0) user_service_owned_ = false;
+        if (sceUserServiceTerminate() == 0) {
+            user_service_owned_ = false;
+            user_service_initialized_ = false;
+        }
     }
 }
 }
