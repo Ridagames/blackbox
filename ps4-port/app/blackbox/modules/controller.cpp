@@ -35,22 +35,28 @@ void Controller::retry(uint64_t now) {
     params.priority = ORBIS_KERNEL_PRIO_FIFO_LOWEST;
     retry_at_ = now + 500;
 
-    // Same initialization order and return-code semantics as PS MTP Explorer.
-    if (!pad_initialized_) {
-        rc = scePadInit();
-        if (rc != 0) { error_ = rc; return; }
-        pad_initialized_ = true;
+    // Match the working native PS4 controller tester: establish the user
+    // service and obtain the signed-in user before initializing ScePad.
+    if (!user_service_initialized_) {
         rc = sceUserServiceInitialize(&params);
-        user_service_result_ = rc;
-        if (rc == 0) user_service_owned_ = true;
+        if (rc != 0) { error_ = rc; return; }
+        user_service_owned_ = true;
+        user_service_initialized_ = true;
     }
     if (pad_handle_ >= 0) return;
 
     rc = sceUserServiceGetInitialUser(&user);
     if (rc != 0) { error_ = rc; return; }
-    initial_user_ = user;
-    pad_handle_ = scePadOpen(user, 0, 0, nullptr);
-    pad_open_result_ = pad_handle_;
+
+    if (!pad_initialized_) {
+        rc = scePadInit();
+        if (rc != 0) { error_ = rc; return; }
+        pad_initialized_ = true;
+    }
+
+    pad_handle_ = scePadOpen(user, ORBIS_PAD_PORT_TYPE_STANDARD, 0, nullptr);
+    seed_ = true;
+    if (pad_handle_ < 0) error_ = pad_handle_;
     seed_ = true;
     if (pad_handle_ < 0) error_ = pad_handle_;
 }
@@ -81,13 +87,8 @@ void Controller::poll() {
         } else {
             OrbisPadData pad{};
             const int32_t rc = scePadReadState(pad_handle_, &pad);
-            read_result_ = rc;
-            sample_connected_ = pad.connected;
-            sample_buttons_ = pad.buttons;
-            raw_buttons_ = pad.buttons;
-
-            // scePadReadState returns a negative value on failure (MTP Explorer).
-            if (rc < 0) {
+            // OpenOrbis documents zero as success and non-zero as failure.
+            if (rc != 0) {
                 error_ = rc;
                 connected_ = false;
                 down_ = 0;
