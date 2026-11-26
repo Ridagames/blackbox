@@ -31,7 +31,7 @@ def fetch_cover(item, output_dir):
         if len(data) > 8 * 1024 * 1024:
             return False
         image = Image.open(io.BytesIO(data)).convert("RGB")
-        image = ImageOps.fit(image, (192, 192), method=Image.Resampling.LANCZOS)
+        image = ImageOps.fit(image, (512, 512), method=Image.Resampling.LANCZOS)
         image.save(target, format="BMP")
         return True
     except Exception:
