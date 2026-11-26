@@ -5,6 +5,9 @@
 #include <cstdio>
 
 int main(int, char**) {
+    // Initialize the native PS4 controller before SDL creates its video/event
+    // subsystems, matching the standalone hardware-tested controller sample.
+    blackbox::Controller controller;
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         std::fprintf(stderr, "BLACKBOX: SDL_Init failed: %s\n", SDL_GetError());
         return 1;
@@ -19,7 +22,6 @@ int main(int, char**) {
     if (!renderer) { SDL_DestroyWindow(window); SDL_Quit(); return 3; }
 
     {
-    blackbox::Controller controller;
     blackbox::Storage storage;
     storage.load();
     blackbox::Ui ui(window, renderer, storage);
@@ -34,9 +36,6 @@ int main(int, char**) {
             controller.handle(event);
         }
         controller.poll();
-        ui.set_controller_debug(controller.connected(), controller.last_error(), controller.raw_buttons(), controller.pressed_buttons(), controller.navigation_delta(),
-            controller.read_result(), controller.sample_connected(), controller.sample_buttons(),
-            controller.pad_open_result(), controller.initial_user(), controller.user_service_result());
         ui.handle_controller_buttons(controller.pressed_buttons());
         if (controller.exit_requested() && !ui.back()) running = false;
         if (controller.favorite_pressed()) {
