@@ -35,12 +35,17 @@ void Controller::retry(uint64_t now) {
     params.priority = ORBIS_KERNEL_PRIO_FIFO_LOWEST;
     retry_at_ = now + 500;
 
-    // Match the working native PS4 controller tester: establish the user
-    // service and obtain the signed-in user before initializing ScePad.
-    if (!user_service_initialized_) {
-        rc = sceUserServiceInitialize(&params);
+    // Follow PS MTP Explorer's controller lifecycle exactly:
+    // initialize ScePad first, then attempt SceUserService, then get user/open pad.
+    if (!pad_initialized_) {
+        rc = scePadInit();
         if (rc != 0) { error_ = rc; return; }
-        user_service_owned_ = true;
+        pad_initialized_ = true;
+
+        rc = sceUserServiceInitialize(&params);
+        if (rc == 0) user_service_owned_ = true;
+        // The reference implementation continues to GetInitialUser even if
+        // UserServiceInitialize reports that the service is already initialized.
         user_service_initialized_ = true;
     }
     if (pad_handle_ >= 0) return;
@@ -48,15 +53,7 @@ void Controller::retry(uint64_t now) {
     rc = sceUserServiceGetInitialUser(&user);
     if (rc != 0) { error_ = rc; return; }
 
-    if (!pad_initialized_) {
-        rc = scePadInit();
-        if (rc != 0) { error_ = rc; return; }
-        pad_initialized_ = true;
-    }
-
     pad_handle_ = scePadOpen(user, ORBIS_PAD_PORT_TYPE_STANDARD, 0, nullptr);
-    seed_ = true;
-    if (pad_handle_ < 0) error_ = pad_handle_;
     seed_ = true;
     if (pad_handle_ < 0) error_ = pad_handle_;
 }
@@ -87,8 +84,8 @@ void Controller::poll() {
         } else {
             OrbisPadData pad{};
             const int32_t rc = scePadReadState(pad_handle_, &pad);
-            // OpenOrbis documents zero as success and non-zero as failure.
-            if (rc != 0) {
+            // Match PS MTP Explorer's tested native read-state handling.
+            if (rc < 0) {
                 error_ = rc;
                 connected_ = false;
                 down_ = 0;
