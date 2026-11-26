@@ -1,6 +1,7 @@
 /*
- * DualShock 4 input for BLACKBOX PS4.
- * Native input flow follows nueex/ps-mtp-explorer/src/ps4/controller.c.
+ * BLACKBOX PS4 controller input.
+ * Native DualShock 4 lifecycle, sampling, reconnect and repeat logic are
+ * adapted directly from nueex/ps-mtp-explorer/src/ps4/controller.c.
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "controller.hpp"
@@ -8,13 +9,10 @@
 #include <orbis/Pad.h>
 #include <orbis/UserService.h>
 #include <time.h>
+#include <cstring>
 
 namespace blackbox {
 namespace {
-constexpr uint64_t kReconnectDelayMs = 500;
-constexpr uint64_t kInitialRepeatDelayMs = 360;
-constexpr uint64_t kRepeatIntervalMs = 90;
-
 uint64_t input_now() {
     struct timespec ts{};
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
@@ -28,7 +26,6 @@ Controller::Controller() {
     seed_ = true;
     retry(input_now());
 }
-
 Controller::~Controller() { close(); }
 
 void Controller::retry(uint64_t now) {
@@ -36,16 +33,15 @@ void Controller::retry(uint64_t now) {
     int32_t rc;
     OrbisUserServiceInitializeParams params{};
     params.priority = ORBIS_KERNEL_PRIO_FIFO_LOWEST;
-    retry_at_ = now + kReconnectDelayMs;
+    retry_at_ = now + 500;
 
+    // Same initialization order and return-code semantics as PS MTP Explorer.
     if (!pad_initialized_) {
         rc = scePadInit();
         if (rc != 0) { error_ = rc; return; }
         pad_initialized_ = true;
         rc = sceUserServiceInitialize(&params);
         if (rc == 0) user_service_owned_ = true;
-        // Match PS MTP Explorer: an already-initialized user service does
-        // not prevent querying the active user and opening the controller.
     }
     if (pad_handle_ >= 0) return;
 
@@ -53,9 +49,7 @@ void Controller::retry(uint64_t now) {
     if (rc != 0) { error_ = rc; return; }
     pad_handle_ = scePadOpen(user, 0, 0, nullptr);
     seed_ = true;
-    down_ = 0;
     if (pad_handle_ < 0) error_ = pad_handle_;
-    else error_ = 0;
 }
 
 void Controller::handle(const SDL_Event& event) {
@@ -85,70 +79,71 @@ void Controller::poll() {
             OrbisPadData pad{};
             const int32_t rc = scePadReadState(pad_handle_, &pad);
 
-            // Match the reference implementation: negative values are errors.
+            // scePadReadState returns a negative value on failure (MTP Explorer).
             if (rc < 0) {
                 error_ = rc;
                 connected_ = false;
-                raw_buttons_ = 0;
-                pressed_buttons_ = 0;
                 down_ = 0;
                 seed_ = true;
+                retry_at_ = now + 500;
                 if (++failures_ >= 3) {
                     const int32_t close_rc = scePadClose(pad_handle_);
                     if (close_rc == 0) pad_handle_ = -1;
                     failures_ = 0;
                 }
-                retry_at_ = now + kReconnectDelayMs;
-            } else if (!pad.connected) {
-                connected_ = false;
-                raw_buttons_ = 0;
-                pressed_buttons_ = 0;
-                down_ = 0;
-                seed_ = true;
-                retry_at_ = now + kReconnectDelayMs;
             } else {
-                connected_ = true;
                 error_ = 0;
                 failures_ = 0;
-                retry_at_ = 0;
-
-                // Same input source and analog thresholds as PS MTP Explorer.
-                uint32_t held = pad.buttons;
-                if (pad.leftStick.y < 64) held |= ORBIS_PAD_BUTTON_UP;
-                if (pad.leftStick.y > 192) held |= ORBIS_PAD_BUTTON_DOWN;
-
-                const uint32_t nav_mask = ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN |
-                    ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT |
-                    ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1;
-                uint32_t pressed = 0;
-
-                if (seed_) {
-                    seed_ = false;
-                    down_ = held;
-                    repeat_at_ = now + kInitialRepeatDelayMs;
+                if (!pad.connected) {
+                    connected_ = false;
+                    down_ = 0;
+                    seed_ = true;
+                    retry_at_ = now + 500;
                 } else {
-                    pressed = held & ~down_;
-                    if (pressed & nav_mask) repeat_at_ = now + kInitialRepeatDelayMs;
-                    else if ((held & nav_mask) && now >= repeat_at_) {
-                        pressed |= held & nav_mask;
-                        repeat_at_ = now + kRepeatIntervalMs;
+                    connected_ = true;
+                    retry_at_ = 0;
+
+                    // Exact MTP Explorer directional source and analog thresholds.
+                    uint32_t held = pad.buttons;
+                    if (pad.leftStick.y < 64) held |= ORBIS_PAD_BUTTON_UP;
+                    if (pad.leftStick.y > 192) held |= ORBIS_PAD_BUTTON_DOWN;
+
+                    const uint32_t navigation_mask =
+                        ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN |
+                        ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT |
+                        ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1;
+
+                    // Match MTP Explorer: ignore held keys on first sample,
+                    // emit fresh presses immediately, then repeat after 360/90 ms.
+                    if (seed_) {
+                        seed_ = false;
+                        down_ = held;
+                        repeat_at_ = now + 360;
+                    } else {
+                        uint32_t pressed = held & ~down_;
+                        if (pressed & navigation_mask) {
+                            repeat_at_ = now + 360;
+                        } else if ((held & navigation_mask) && now >= repeat_at_) {
+                            pressed |= held & navigation_mask;
+                            repeat_at_ = now + 90;
+                        }
+                        down_ = held;
+                        pressed_buttons_ = pressed;
+
+                        if (pressed & ORBIS_PAD_BUTTON_CROSS) confirm_ = true;
+                        if (pressed & ORBIS_PAD_BUTTON_SQUARE) favorite_ = true;
+                        if (pressed & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_OPTIONS))
+                            exit_ = true;
+
+                        if (pressed & ORBIS_PAD_BUTTON_UP) navigation_delta_ = -6;
+                        else if (pressed & ORBIS_PAD_BUTTON_DOWN) navigation_delta_ = 6;
+                        else if (pressed & ORBIS_PAD_BUTTON_LEFT) navigation_delta_ = -1;
+                        else if (pressed & ORBIS_PAD_BUTTON_RIGHT) navigation_delta_ = 1;
+                        else if (pressed & ORBIS_PAD_BUTTON_L1) navigation_delta_ = -18;
+                        else if (pressed & ORBIS_PAD_BUTTON_R1) navigation_delta_ = 18;
                     }
-                    down_ = held;
+                    raw_buttons_ = held;
                 }
-
-                raw_buttons_ = held;
-                pressed_buttons_ = pressed;
-                if (pressed & ORBIS_PAD_BUTTON_CROSS) confirm_ = true;
-                if (pressed & ORBIS_PAD_BUTTON_SQUARE) favorite_ = true;
-                if (pressed & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_OPTIONS))
-                    exit_ = true;
-
-                if (pressed & ORBIS_PAD_BUTTON_UP) navigation_delta_ = -6;
-                else if (pressed & ORBIS_PAD_BUTTON_DOWN) navigation_delta_ = 6;
-                else if (pressed & ORBIS_PAD_BUTTON_LEFT) navigation_delta_ = -1;
-                else if (pressed & ORBIS_PAD_BUTTON_RIGHT) navigation_delta_ = 1;
-                else if (pressed & ORBIS_PAD_BUTTON_L1) navigation_delta_ = -18;
-                else if (pressed & ORBIS_PAD_BUTTON_R1) navigation_delta_ = 18;
             }
         }
     }
@@ -170,9 +165,7 @@ void Controller::close() {
         if (scePadClose(pad_handle_) == 0) pad_handle_ = -1;
     }
     if (user_service_owned_ && pad_handle_ < 0) {
-        if (sceUserServiceTerminate() == 0) {
-            user_service_owned_ = false;
-        }
+        if (sceUserServiceTerminate() == 0) user_service_owned_ = false;
     }
 }
 }
