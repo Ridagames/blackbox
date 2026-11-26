@@ -40,7 +40,7 @@ void Controller::retry(uint64_t now) {
 
     if (!pad_initialized_) {
         rc = scePadInit();
-        if (rc < 0) { error_ = rc; return; }
+        if (rc != 0) { error_ = rc; return; }
         pad_initialized_ = true;
         rc = sceUserServiceInitialize(&params);
         if (rc == 0) user_service_owned_ = true;
@@ -51,7 +51,7 @@ void Controller::retry(uint64_t now) {
     if (pad_handle_ >= 0) return;
 
     rc = sceUserServiceGetInitialUser(&user);
-    if (rc < 0) { error_ = rc; return; }
+    if (rc != 0) { error_ = rc; return; }
     pad_handle_ = scePadOpen(user, 0, 0, nullptr);
     seed_ = true;
     down_ = 0;
