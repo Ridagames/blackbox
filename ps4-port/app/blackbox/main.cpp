@@ -34,7 +34,9 @@ int main(int, char**) {
             controller.handle(event);
         }
         controller.poll();
-        ui.set_controller_debug(controller.connected(), controller.last_error(), controller.raw_buttons(), controller.pressed_buttons(), controller.navigation_delta());
+        ui.set_controller_debug(controller.connected(), controller.last_error(), controller.raw_buttons(), controller.pressed_buttons(), controller.navigation_delta(),
+            controller.read_result(), controller.sample_connected(), controller.sample_buttons(),
+            controller.pad_open_result(), controller.initial_user(), controller.user_service_result());
         ui.handle_controller_buttons(controller.pressed_buttons());
         if (controller.exit_requested() && !ui.back()) running = false;
         if (controller.favorite_pressed()) {
