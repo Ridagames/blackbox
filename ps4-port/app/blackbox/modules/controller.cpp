@@ -41,13 +41,16 @@ void Controller::retry(uint64_t now) {
         if (rc != 0) { error_ = rc; return; }
         pad_initialized_ = true;
         rc = sceUserServiceInitialize(&params);
+        user_service_result_ = rc;
         if (rc == 0) user_service_owned_ = true;
     }
     if (pad_handle_ >= 0) return;
 
     rc = sceUserServiceGetInitialUser(&user);
     if (rc != 0) { error_ = rc; return; }
+    initial_user_ = user;
     pad_handle_ = scePadOpen(user, 0, 0, nullptr);
+    pad_open_result_ = pad_handle_;
     seed_ = true;
     if (pad_handle_ < 0) error_ = pad_handle_;
 }
@@ -78,6 +81,10 @@ void Controller::poll() {
         } else {
             OrbisPadData pad{};
             const int32_t rc = scePadReadState(pad_handle_, &pad);
+            read_result_ = rc;
+            sample_connected_ = pad.connected;
+            sample_buttons_ = pad.buttons;
+            raw_buttons_ = pad.buttons;
 
             // scePadReadState returns a negative value on failure (MTP Explorer).
             if (rc < 0) {
