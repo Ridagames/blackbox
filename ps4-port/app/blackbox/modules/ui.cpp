@@ -83,21 +83,6 @@ Ui::~Ui() {
     for (auto& item : cover_cache_) if (item.second) SDL_DestroyTexture(item.second);
 }
 void Ui::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
-void Ui::set_controller_debug(bool connected, int32_t error, uint32_t buttons, uint32_t pressed, int navigation,
-                              int32_t read_result, bool sample_connected, uint32_t sample_buttons,
-                              int32_t pad_handle, int32_t initial_user, int32_t user_service_result) {
-    controller_connected_ = connected;
-    controller_error_ = error;
-    controller_buttons_ = buttons;
-    controller_pressed_ = pressed;
-    controller_navigation_ = navigation;
-    controller_read_result_ = read_result;
-    controller_sample_connected_ = sample_connected;
-    controller_sample_buttons_ = sample_buttons;
-    controller_pad_handle_ = pad_handle;
-    controller_initial_user_ = initial_user;
-    controller_user_service_result_ = user_service_result;
-}
 SDL_Texture* Ui::load_cover(const CatalogEntry& entry) {
     const auto found = cover_cache_.find(entry.title_id);
     if (found != cover_cache_.end()) return found->second;
@@ -318,17 +303,6 @@ void Ui::render_catalog() {
     ImGui::SetNextItemWidth(520.0f);
     ImGui::InputTextWithHint("##catalog-search","Search a game or title ID...",search_query_,sizeof(search_query_));
     ImGui::SameLine(); if(ImGui::Button("CLEAR",ImVec2(90,34))) search_query_[0]='\0';
-    // Put the input diagnostic INSIDE the catalogue window so it cannot be
-    // hidden behind another ImGui window or lost due to window ordering.
-    ImGui::Separator();
-    ImGui::TextColored(controller_connected_ ? ImVec4(0.20f,1.0f,0.35f,1.0f) : ImVec4(1.0f,0.35f,0.25f,1.0f),
-        "PAD: %s   ERROR: 0x%08X", controller_connected_ ? "CONNECTED" : "WAITING",
-        static_cast<unsigned int>(controller_error_));
-    ImGui::SameLine();
-    ImGui::Text("RAW: 0x%08X   PRESSED: 0x%08X   NAV: %d   SELECTED: %u",
-        static_cast<unsigned int>(controller_buttons_),
-        static_cast<unsigned int>(controller_pressed_), controller_navigation_,
-        static_cast<unsigned int>(selected_item_));
     visible.clear();
     for (std::size_t i=0;i<entries.size();++i)
         if (search_query_[0]=='\0' || entries[i].title.find(search_query_)!=std::string::npos ||
@@ -453,21 +427,6 @@ void Ui::render() {
         case Page::Favorites: render_favorites(); break;
         case Page::Settings: render_settings(); break;
     }
-    // High-contrast diagnostic kept on-screen while testing controller/UI routing.
-    ImGui::SetNextWindowPos(ImVec2(18, 18), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.96f);
-    ImGui::Begin("BLACKBOX INPUT TEST", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    ImGui::TextColored(controller_connected_ ? ImVec4(0.2f,1.0f,0.35f,1.0f) : ImVec4(1.0f,0.35f,0.25f,1.0f), "PAD: %s", controller_connected_ ? "CONNECTED" : "WAITING");
-    ImGui::Text("ERROR: 0x%08X", static_cast<unsigned int>(controller_error_));
-    ImGui::Text("RAW BUTTONS: 0x%08X", static_cast<unsigned int>(controller_buttons_));
-    ImGui::Text("PRESSED: 0x%08X", static_cast<unsigned int>(controller_pressed_));
-    ImGui::Text("NAV DELTA: %d", controller_navigation_);
-    ImGui::Text("READ: %d   PAD.CONNECTED: %d   SAMPLE: 0x%08X", controller_read_result_,
-        controller_sample_connected_ ? 1 : 0, static_cast<unsigned int>(controller_sample_buttons_));
-    ImGui::Text("HANDLE: %d   USER: %d   USER SERVICE: %d", controller_pad_handle_,
-        controller_initial_user_, controller_user_service_result_);
-    ImGui::Text("UI SELECTION: %u", static_cast<unsigned int>(selected_item_));
-    ImGui::End();
     ImGui::Render();
     SDL_SetRenderDrawColor(renderer_, 5, 9, 17, 255); SDL_RenderClear(renderer_);
     ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
