@@ -114,6 +114,32 @@ jobs:
           (out/'HOST-BRIDGE-RECONNAISSANCE-V2.md').write_text('\n'.join(lines)+'\n')
           (out/'HOST-BRIDGE-SCAN-SUMMARY.txt').write_text(f'bundle_bytes={p.stat().st_size}\nbundle_sha256={hashlib.sha256(p.read_bytes()).hexdigest()}\ncontext_windows={len(selected)}\n')
           PY
+      - name: AST analysis of original runtime and host calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/jsdeps"
+          npm install --prefix "$RUNNER_TEMP/jsdeps" --no-audit --no-fund acorn@8
+          NODE_PATH="$RUNNER_TEMP/jsdeps/node_modules" node - "$RUNNER_TEMP/out/app.jsx.bundle.js" "$RUNNER_TEMP/out" <<'JS'
+          const fs=require('fs'), acorn=require('acorn');
+          const file=process.argv[2], out=process.argv[3], src=fs.readFileSync(file,'utf8');
+          const ast=acorn.parse(src,{ecmaVersion:'latest',sourceType:'script',allowHashBang:true});
+          const calls=new Map(), members=new Map(), strings=new Map(), globals=new Map();
+          const chain=n=>{const a=[];while(n&&n.type==='MemberExpression'){a.unshift(n.computed?(n.property.type==='Literal'?String(n.property.value):'[computed]'):n.property.name);n=n.object;}if(n&&n.type==='Identifier')a.unshift(n.name);else if(n&&n.type==='ThisExpression')a.unshift('this');return a.join('.')};
+          const add=(m,k)=>m.set(k,(m.get(k)||0)+1);
+          const walk=n=>{if(!n||typeof n!=='object')return;
+            if(n.type==='CallExpression'||n.type==='NewExpression')add(calls,chain(n.callee)||n.callee.type);
+            if(n.type==='MemberExpression'){const c=chain(n);add(members,c);if(/NativeUI|native|bridge|globalThis|window|navigator|document|process|webkit|sce|Sce|ps5|PlayStation/i.test(c))add(globals,c);}
+            if(n.type==='Literal'&&typeof n.value==='string'&&/native|bridge|audio|video|image|font|storage|playstation|ps5|ps4|orbis|prospero|sce|http|https|\.png|\.jpg|\.mp3|\.wav|\.ogg/i.test(n.value))add(strings,n.value.slice(0,240));
+            for(const [k,v] of Object.entries(n)){if(k==='start'||k==='end'||k==='loc')continue;if(Array.isArray(v))for(const x of v)walk(x);else if(v&&typeof v==='object')walk(v);}
+          }; walk(ast);
+          const top=m=>[...m].sort((a,b)=>b[1]-a[1]).slice(0,500).map(([k,v])=>String(v).padStart(5)+'  '+k).join('\n');
+          const report=['# AST-based BlackBox runtime analysis','', 'Bundle bytes: '+Buffer.byteLength(src),'AST parse: PASS','', '## Most frequent calls',top(calls),'','## Host/platform member expressions',top(globals),'','## All frequent member expressions',top(members),'','## Relevant string literals',top(strings),''].join('\n');
+          fs.writeFileSync(out+'/HOST-BRIDGE-AST-ANALYSIS.txt',report);
+          console.log('AST parse PASS; call expressions:',calls.size,'member expressions:',members.size,'host/platform members:',globals.size,'relevant strings:',strings.size);
+          console.log('TOP HOST MEMBERS\n'+top(globals).split('\n').slice(0,120).join('\n'));
+          console.log('TOP CALLS\n'+top(calls).split('\n').slice(0,100).join('\n'));
+          JS
       - name: Upload bridge analysis
         if: always()
         uses: actions/upload-artifact@v4
@@ -125,3 +151,5 @@ jobs:
           retention-days: 7
 
 # Re-run trigger: host bridge reconnaissance pass 2
+
+# AST pass: recover concrete call and member-expression structure
