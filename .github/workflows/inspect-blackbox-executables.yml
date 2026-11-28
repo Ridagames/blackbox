@@ -17,7 +17,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq exfatprogs file binutils binwalk 7zip ffmpeg
+          sudo apt-get install -y -qq exfatprogs file binutils binwalk 7zip ffmpeg python3
           mkdir -p "$RUNNER_TEMP/bb" "$RUNNER_TEMP/mnt" "$RUNNER_TEMP/extracted" "$RUNNER_TEMP/analysis"
           curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
             "https://github.com/D3ATHLY/blackbox/releases/download/2.0.0/BlackBox.exfat" \
@@ -51,8 +51,53 @@ jobs:
             } > "$OUT/$safe.txt"
             if [ "$(basename "$f")" = "eboot.bin" ]; then
               binwalk "$f" > "$OUT/eboot-binwalk.txt" 2>&1 || true
+              binwalk -E "$f" > "$OUT/eboot-entropy.txt" 2>&1 || true
             fi
           done
+      - name: Map executable sections and search bundled app code
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/extracted"
+          OUT="$RUNNER_TEMP/analysis"
+          mkdir -p "$OUT/section-dumps"
+          python3 - "$ROOT" "$OUT" <<'PY'
+          import os, re, sys, subprocess, pathlib
+          root, out = sys.argv[1:3]
+          report = pathlib.Path(out) / "SECTION-MAP-AND-APP-CODE.txt"
+          targets = []
+          for base, _, files in os.walk(root):
+              for name in files:
+                  if name == "eboot.bin" or name.endswith((".elf", ".prx")):
+                      targets.append(os.path.join(base, name))
+          needles = re.compile(rb"(?i)(quickjs|react|webpack|rollup|vite|sourceMappingURL|module\\.exports|exports\\.|createElement|\.jsx?|\.css|\.html|\.wasm|base64|data:audio|data:image|\.mp3|\.ogg|\.opus|\.wav|\.webm|\.mp4)")
+          with report.open("w", encoding="utf-8") as w:
+              for path in sorted(targets):
+                  rel = os.path.relpath(path, root)
+                  w.write(f"\\n===== {rel} ({os.path.getsize(path)} bytes) =====\\n")
+                  if path.endswith((".elf", ".prx")) or os.path.basename(path) == "eboot.bin":
+                      p = subprocess.run(["readelf", "-SW", path], capture_output=True, text=True)
+                      w.write(p.stdout[:50000] if p.stdout else p.stderr[:5000])
+                  data = pathlib.Path(path).read_bytes()
+                  hits = list(needles.finditer(data))
+                  w.write(f"\\nAPP/MEDIA STRING MATCHES: {len(hits)}\\n")
+                  for m in hits[:500]:
+                      a, b = max(0, m.start()-100), min(len(data), m.end()+180)
+                      snippet = data[a:b].replace(b"\\x00", b" ")
+                      w.write(f"offset=0x{m.start():x} {snippet.decode('utf-8','replace')}\\n")
+                  if path.endswith((".elf", ".prx")):
+                      sec = subprocess.run(["readelf", "-SW", path], capture_output=True, text=True).stdout
+                      for line in sec.splitlines():
+                          m = re.search(r"\\[\\s*\\d+\\]\\s+(\\S+)\\s+\\S+\\s+\\S+\\s+([0-9a-fA-F]+)\\s+([0-9a-fA-F]+)", line)
+                          if not m:
+                              continue
+                          name, off, size = m.group(1), int(m.group(2),16), int(m.group(3),16)
+                          if name not in (".rodata", ".data", ".data.rel.ro", ".init_array") or not size or size > 64*1024*1024:
+                              continue
+                          dest = pathlib.Path(out) / "section-dumps" / (rel.replace("/", "__") + name.replace(".", "_") + ".bin")
+                          dest.write_bytes(data[off:off+size])
+                          w.write(f"SECTION_DUMP {name} offset=0x{off:x} size={size} path={dest.name}\\n")
+          PY
       - name: Validate embedded archive and video candidates
         shell: bash
         run: |
@@ -75,7 +120,6 @@ jobs:
             timeout 20 ffprobe -v error -show_format -show_streams "$target" >> "$OUT/VALIDATION.txt" 2>&1 || true
             echo | tee -a "$OUT/VALIDATION.txt"
           }
-          # Binwalk offsets are byte offsets. These are bounded samples, not blind full-file carving.
           probe zip-offset-284665 284665 16777216
           probe rar-offset-248551 248551 16777216
           probe rar-offset-275306 275306 16777216
@@ -96,10 +140,11 @@ jobs:
             date -u
             echo
             echo "Executable files inspected:"
-            find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -printf '%P | %s bytes\n' | sort
+            find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -printf '%P | %s bytes\\n' | sort
             echo
             echo "Candidate archive/video validation: candidate-validation/VALIDATION.txt"
-            echo "Signatures are treated as candidates until the corresponding parser confirms a valid container and its contents."
+            echo "ELF section dumps: section-dumps/"
+            echo "Bundled app code scan: SECTION-MAP-AND-APP-CODE.txt"
           } > "$OUT/REPORT.txt"
           cat "$OUT/REPORT.txt"
       - name: Upload executable analysis
