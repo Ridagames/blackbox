@@ -92,48 +92,47 @@ jobs:
                           dest.write_bytes(data[off:off+size])
                           w.write(f"SECTION_DUMP {name} offset=0x{off:x} size={size} path={dest.name}\\n")
           PY
-      - name: Locate PS5-REACT bundle markers and extract bounded candidates
+      - name: Extract JavaScript-rich region for parser analysis
         shell: bash
         run: |
           set -euo pipefail
           ROOT="$RUNNER_TEMP/extracted"
           OUT="$RUNNER_TEMP/analysis/original-app"
-          mkdir -p "$OUT/candidates"
-          python3 - "$ROOT/eboot.bin" "$OUT" <<'PY'
-          import pathlib,sys,re,hashlib
+          mkdir -p "$OUT/javascript-region"
+          python3 - "$ROOT/eboot.bin" "$OUT/javascript-region" <<'PY'
+          import pathlib,sys,re,hashlib,collections
           src=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2])
           data=src.read_bytes()
-          markers=[b'app.jsx.bundle',b'upscale',b'[PS5-REACT]',b'QuickJS-ng',b'embedded-react']
-          report=[f'eboot_size={len(data)}',f'eboot_sha256={hashlib.sha256(data).hexdigest()}']
-          found=[]
-          for marker in markers:
-              hits=[m.start() for m in re.finditer(re.escape(marker),data,re.I)]
-              report.append(f'MARKER {marker.decode(errors="replace")}: count={len(hits)} offsets='+','.join(hex(x) for x in hits[:100]))
-              found.extend((p,marker) for p in hits)
-          # Save bounded binary windows around every app.jsx.bundle marker; no guessed JS end marker.
-          bundle_hits=[p for p,m in found if m==b'app.jsx.bundle']
-          if not bundle_hits:
-              report.append('STATUS=APP_BUNDLE_MARKER_NOT_FOUND')
-          for i,pos in enumerate(bundle_hits):
-              start=max(0,pos-4*1024*1024); end=min(len(data),pos+12*1024*1024)
-              payload=data[start:end]
-              dest=out/'candidates'/f'app-bundle-context-{i:02d}-0x{pos:x}.bin'
-              dest.write_bytes(payload)
-              report.append(f'CANDIDATE {dest.name} marker=0x{pos:x} start=0x{start:x} end=0x{end:x} size={len(payload)} sha256={hashlib.sha256(payload).hexdigest()}')
-              # Human-readable strings around the marker help establish whether this is source or logging data.
-              lo=max(0,pos-8192); hi=min(len(data),pos+65536)
-              block=data[lo:hi]
-              strings=re.findall(rb'[ -~]{6,}',block)
-              (out/'candidates'/f'app-bundle-context-{i:02d}-strings.txt').write_text(
-                  '\n'.join(x.decode('utf-8','replace') for x in strings),encoding='utf-8')
-          # Record JS-like tokens globally with offsets to find the real code/data boundary.
-          tokens=[b'function(',b'function (',b'=>',b'createElement',b'__webpack_require__',b'__commonJS',b'exports.',b'require(',b'from "',b'from \'']
-          for token in tokens:
-              hits=[m.start() for m in re.finditer(re.escape(token),data)]
-              report.append(f'TOKEN {token!r}: count={len(hits)} offsets='+','.join(hex(x) for x in hits[:80]))
-          (out/'BUNDLE-EXTRACTION-REPORT.txt').write_text('\n'.join(report)+'\n',encoding='utf-8')
+          # Offsets are grounded in the prior scan: __commonJS/function/createElement cluster around 0x5d7a000.
+          start=0x5d78000
+          end=min(len(data),start+16*1024*1024)
+          block=data[start:end]
+          raw=out/'eboot-js-rich-region.bin'; raw.write_bytes(block)
+          report=[
+            f'offset_start=0x{start:x}',f'offset_end=0x{end:x}',f'size={len(block)}',
+            f'sha256={hashlib.sha256(block).hexdigest()}',
+            f'zero_bytes={block.count(bytes([0]))}',
+            f'printable_ratio={sum(32<=b<127 or b in (9,10,13) for b in block)/len(block):.6f}'
+          ]
+          tokens=[b'__commonJS',b'__esm',b'function(',b'createElement',b'exports.',b'require(',b'PS5-REACT',b'upscale']
+          for t in tokens:
+            hits=[m.start()+start for m in re.finditer(re.escape(t),data)]
+            report.append(f'{t.decode()}: count={len(hits)} offsets='+','.join(hex(x) for x in hits[:100]))
+          # Extract all printable ASCII runs with absolute offsets, retaining offsets for boundary reconstruction.
+          runs=[]
+          for m in re.finditer(rb'[ -~]{8,}',block):
+            runs.append(f'0x{start+m.start():x}: '+m.group().decode('ascii','replace'))
+          (out/'PRINTABLE-RUNS.txt').write_text('\\n'.join(runs)+'\\n',encoding='utf-8')
+          # Save narrow source-like windows around the first helper and first React element calls.
+          for label,needle in [('commonjs',b'__commonJS'),('createelement',b'createElement')]:
+            pos=data.find(needle,start,end)
+            if pos>=0:
+              lo=max(start,pos-65536); hi=min(end,pos+262144)
+              p=out/f'{label}-context.bin'; p.write_bytes(data[lo:hi])
+              report.append(f'{label}_context={p.name} start=0x{lo:x} end=0x{hi:x} size={hi-lo}')
+          (out/'JAVASCRIPT-REGION-REPORT.txt').write_text('\\n'.join(report)+'\\n',encoding='utf-8')
           PY
-          cat "$OUT/BUNDLE-EXTRACTION-REPORT.txt"
+          cat "$OUT/javascript-region/JAVASCRIPT-REGION-REPORT.txt"
       - name: Validate embedded archive and video candidates
         shell: bash
         run: |
