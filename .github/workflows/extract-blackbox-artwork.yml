@@ -104,7 +104,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: BLACKBOX-ORIGINAL-CATALOG-ARTWORK
-          path: \${{ runner.temp }}/artwork/
+          path: ${{ runner.temp }}/artwork/
           if-no-files-found: warn
           compression-level: 0
           retention-days: 7
