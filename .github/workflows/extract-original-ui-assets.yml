@@ -1,0 +1,108 @@
+name: Extract original BlackBox UI media
+on:
+  push:
+    branches: [ps4-port]
+    paths:
+      - ".github/workflows/extract-original-ui-assets.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Download original filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq exfatprogs python3-pil ffmpeg
+          mkdir -p "$RUNNER_TEMP/bb" "$RUNNER_TEMP/mnt" "$RUNNER_TEMP/root" "$RUNNER_TEMP/out"
+          curl --fail --location --retry 5 --retry-all-errors "https://github.com/D3ATHLY/blackbox/releases/download/2.0.0/BlackBox.exfat" -o "$RUNNER_TEMP/bb/BlackBox.exfat"
+          sudo mount -t exfat -o loop,ro "$RUNNER_TEMP/bb/BlackBox.exfat" "$RUNNER_TEMP/mnt"
+          sudo cp -a "$RUNNER_TEMP/mnt/." "$RUNNER_TEMP/root/"
+          sudo umount "$RUNNER_TEMP/mnt"
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/root"
+      - name: Scan and validate embedded UI media
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/root" "$RUNNER_TEMP/out" <<'PY'
+          import os,sys,struct,hashlib,pathlib,subprocess
+          from PIL import Image
+          root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2])
+          media=out/'media'; media.mkdir(parents=True,exist_ok=True)
+          report=[]
+          seen=set()
+          def save(kind, source, offset, blob, suffix):
+              digest=hashlib.sha256(blob).hexdigest()
+              key=(kind,digest)
+              if key in seen: return
+              seen.add(key)
+              p=media/f'{kind}-{len(seen):04d}-{digest[:12]}{suffix}'
+              p.write_bytes(blob)
+              report.append(f'{p.name}\t{len(blob)}\t{source}\t0x{offset:x}\tsha256={digest}')
+          for base,_,names in os.walk(root):
+              for name in names:
+                  p=pathlib.Path(base)/name
+                  try: data=p.read_bytes()
+                  except OSError: continue
+                  # Standalone known media files: trust extension only after decoder validation.
+                  ext=p.suffix.lower()
+                  if ext in ('.png','.jpg','.jpeg','.wav','.ogg','.opus','.mp3','.mp4','.webm','.ttf','.otf'):
+                      if ext in ('.png','.jpg','.jpeg'):
+                          try:
+                              im=Image.open(p); im.verify(); save('image',str(p),0,data,ext)
+                          except Exception: pass
+                      elif ext in ('.wav','.ogg','.opus','.mp3','.mp4','.webm'):
+                          q=subprocess.run(['ffprobe','-v','error','-show_entries','format=format_name','-of','default=nw=1',str(p)],capture_output=True,text=True)
+                          if q.returncode==0: save('media',str(p),0,data,ext)
+                      else: save('font',str(p),0,data,ext)
+                  if p.name!='eboot.bin': continue
+                  # Extract PNGs only when their complete chunk chain reaches IEND and Pillow verifies.
+                  pos=0
+                  sig=b'\x89PNG\r\n\x1a\n'
+                  while True:
+                      pos=data.find(sig,pos)
+                      if pos<0: break
+                      cur=pos+8
+                      try:
+                          while cur+12<=len(data):
+                              n=struct.unpack('>I',data[cur:cur+4])[0]
+                              typ=data[cur+4:cur+8]
+                              cur+=12+n
+                              if cur>len(data) or n>64*1024*1024: raise ValueError()
+                              if typ==b'IEND':
+                                  blob=data[pos:cur]
+                                  tmp=out/'_probe.png'; tmp.write_bytes(blob)
+                                  im=Image.open(tmp); im.verify()
+                                  save('image',str(p),pos,blob,'.png')
+                                  break
+                      except Exception: pass
+                      pos+=8
+                  # RIFF/WAVE files with self-consistent declared size.
+                  pos=0
+                  while True:
+                      pos=data.find(b'RIFF',pos)
+                      if pos<0: break
+                      if pos+12<=len(data) and data[pos+8:pos+12]==b'WAVE':
+                          n=struct.unpack('<I',data[pos+4:pos+8])[0]+8
+                          if 44<=n<=64*1024*1024 and pos+n<=len(data):
+                              blob=data[pos:pos+n]; tmp=out/'_probe.wav'; tmp.write_bytes(blob)
+                              q=subprocess.run(['ffprobe','-v','error','-show_entries','format=format_name','-of','default=nw=1',str(tmp)],capture_output=True)
+                              if q.returncode==0: save('audio',str(p),pos,blob,'.wav')
+                      pos+=4
+          (out/'MEDIA-MANIFEST.tsv').write_text('file\tsize\tsource\toffset\thash\n'+'\n'.join(report)+'\n')
+          print(f'Validated media files: {len(report)}')
+          print('\n'.join(report[:80]))
+          PY
+      - name: Upload original UI media
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLACKBOX-ORIGINAL-UI-MEDIA
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7
