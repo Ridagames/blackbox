@@ -70,25 +70,25 @@ jobs:
               for name in files:
                   if name == "eboot.bin" or name.endswith((".elf", ".prx")):
                       targets.append(os.path.join(base, name))
-          needles = re.compile(rb"(?i)(quickjs|react|webpack|rollup|vite|sourceMappingURL|module\\.exports|exports\\.|createElement|\.jsx?|\.css|\.html|\.wasm|base64|data:audio|data:image|\.mp3|\.ogg|\.opus|\.wav|\.webm|\.mp4)")
+          needles = re.compile(rb"(?i)(quickjs|react|webpack|rollup|vite|sourceMappingURL|module\.exports|exports\.|createElement|\.jsx?|\.css|\.html|\.wasm|base64|data:audio|data:image|\.mp3|\.ogg|\.opus|\.wav|\.webm|\.mp4)")
           with report.open("w", encoding="utf-8") as w:
               for path in sorted(targets):
                   rel = os.path.relpath(path, root)
-                  w.write(f"\\n===== {rel} ({os.path.getsize(path)} bytes) =====\\n")
+                  w.write(f"\n===== {rel} ({os.path.getsize(path)} bytes) =====\n")
                   if path.endswith((".elf", ".prx")) or os.path.basename(path) == "eboot.bin":
                       p = subprocess.run(["readelf", "-SW", path], capture_output=True, text=True)
                       w.write(p.stdout[:50000] if p.stdout else p.stderr[:5000])
                   data = pathlib.Path(path).read_bytes()
                   hits = list(needles.finditer(data))
-                  w.write(f"\\nAPP/MEDIA STRING MATCHES: {len(hits)}\\n")
+                  w.write(f"\nAPP/MEDIA STRING MATCHES: {len(hits)}\n")
                   for m in hits[:500]:
                       a, b = max(0, m.start()-100), min(len(data), m.end()+180)
-                      snippet = data[a:b].replace(b"\\x00", b" ")
-                      w.write(f"offset=0x{m.start():x} {snippet.decode('utf-8','replace')}\\n")
+                      snippet = data[a:b].replace(b"\x00", b" ")
+                      w.write(f"offset=0x{m.start():x} {snippet.decode('utf-8','replace')}\n")
                   if path.endswith((".elf", ".prx")):
                       sec = subprocess.run(["readelf", "-SW", path], capture_output=True, text=True).stdout
                       for line in sec.splitlines():
-                          m = re.search(r"\\[\\s*\\d+\\]\\s+(\\S+)\\s+\\S+\\s+\\S+\\s+([0-9a-fA-F]+)\\s+([0-9a-fA-F]+)", line)
+                          m = re.search(r"\[\s*\d+\]\s+(\S+)\s+\S+\s+\S+\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)", line)
                           if not m:
                               continue
                           name, off, size = m.group(1), int(m.group(2),16), int(m.group(3),16)
@@ -96,7 +96,7 @@ jobs:
                               continue
                           dest = pathlib.Path(out) / "section-dumps" / (rel.replace("/", "__") + name.replace(".", "_") + ".bin")
                           dest.write_bytes(data[off:off+size])
-                          w.write(f"SECTION_DUMP {name} offset=0x{off:x} size={size} path={dest.name}\\n")
+                          w.write(f"SECTION_DUMP {name} offset=0x{off:x} size={size} path={dest.name}\n")
           PY
       - name: Validate embedded archive and video candidates
         shell: bash
