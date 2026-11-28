@@ -1,0 +1,110 @@
+name: Analyze original BlackBox NativeUI API
+on:
+  push:
+    branches: [ps4-port]
+    paths:
+      - ".github/workflows/analyze-original-nativeui-api.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Download original BlackBox filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq exfatprogs
+          mkdir -p "$RUNNER_TEMP/bb" "$RUNNER_TEMP/mnt" "$RUNNER_TEMP/root" "$RUNNER_TEMP/out"
+          curl --fail --location --retry 5 --retry-all-errors "https://github.com/D3ATHLY/blackbox/releases/download/2.0.0/BlackBox.exfat" -o "$RUNNER_TEMP/bb/BlackBox.exfat"
+          sudo mount -t exfat -o loop,ro "$RUNNER_TEMP/bb/BlackBox.exfat" "$RUNNER_TEMP/mnt"
+          sudo cp -a "$RUNNER_TEMP/mnt/." "$RUNNER_TEMP/root/"
+          sudo umount "$RUNNER_TEMP/mnt"
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/root"
+      - name: Recover syntax-validated original app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/root/eboot.bin" "$RUNNER_TEMP/out" <<'PY'
+          import hashlib,pathlib,subprocess,sys
+          data=pathlib.Path(sys.argv[1]).read_bytes(); out=pathlib.Path(sys.argv[2])
+          expected=0x5d7a680
+          prefixes=[b'(() =>',b'(()=>',b'((() =>',b'(()=>{',b'(()=> {']
+          starts=[]
+          for prefix in prefixes:
+              p=0
+              while True:
+                  p=data.find(prefix,p)
+                  if p<0: break
+                  if p>1024*1024: starts.append((p,prefix))
+                  p+=1
+          endings=[b'})();',b'})();\n',b'})();\r\n',b'})();\n;',b'})();\r\n;']
+          candidates=[]
+          for start,prefix in sorted(set(starts)):
+              if start>expected+32*1024*1024: continue
+              for marker in endings:
+                  pos=start+1024*1024
+                  while True:
+                      pos=data.find(marker,pos)
+                      if pos<0: break
+                      end=pos+len(marker)
+                      if end-start<=32*1024*1024: candidates.append((start,end,prefix,marker))
+                      pos+=1
+          candidates=sorted(set(candidates),key=lambda x:(x[1]-x[0],x[0]))
+          target=out/'app.jsx.bundle.js'
+          for count,(start,end,prefix,marker) in enumerate(candidates[:10000],1):
+              target.write_bytes(data[start:end])
+              q=subprocess.run(['node','--check',str(target)],capture_output=True,text=True,timeout=20)
+              if q.returncode==0:
+                  report=[f'start=0x{start:x}',f'end=0x{end:x}',f'size={end-start}',f'sha256={hashlib.sha256(data[start:end]).hexdigest()}',f'node_check=PASS',f'candidate_number={count}']
+                  (out/'BUNDLE-REPORT.txt').write_text('\n'.join(report)+'\n')
+                  print('\n'.join(report))
+                  break
+          else: raise SystemExit('No JavaScript candidate passed syntax validation')
+          PY
+      - name: Extract NativeUI bridge signatures and app integration points
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/out/app.jsx.bundle.js" "$RUNNER_TEMP/out" <<'PY'
+          import pathlib,re,collections,hashlib,sys
+          p=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); s=p.read_text(errors='replace')
+          patterns={
+            'NativeUI identifiers':r'(?i).{0,180}(?:NativeUI|nativeUI|native_ui).{0,220}',
+            'native bridge identifiers':r'(?i).{0,180}(?:nativeBridge|native_bridge|webkit\.messageHandlers|postMessage).{0,220}',
+            'PS5/platform identifiers':r'(?i).{0,120}(?:PS5|PlayStation|Sce[A-Z][A-Za-z0-9_]*|sce[A-Z][A-Za-z0-9_]*).{0,160}',
+            'audio/media integration':r'(?i).{0,120}(?:audio|sound|music|video|animation|lottie).{0,160}',
+            'asset loading':r'(?i).{0,120}(?:\.png|\.jpg|\.jpeg|\.webp|\.svg|\.ttf|\.otf|asset|texture|font).{0,160}'
+          }
+          lines=['# Original BlackBox app bundle: API reconnaissance','',f'- Bundle bytes: {p.stat().st_size}',f'- SHA-256: {hashlib.sha256(p.read_bytes()).hexdigest()}','- JavaScript syntax validation: PASS','']
+          for title,pat in patterns.items():
+              hits=[]
+              for m in re.finditer(pat,s):
+                  v=re.sub(r'\s+',' ',m.group(0)).strip()
+                  if v not in hits: hits.append(v)
+                  if len(hits)>=250: break
+              lines += [f'## {title} ({len(hits)} unique samples)',''] + [f'- `{x[:500]}`' for x in hits] + ['']
+          # Member-access names immediately following the bridge identifier.
+          members=collections.Counter()
+          for m in re.finditer(r'(?i)(?:NativeUI|nativeUI)\s*(?:\?\.)?\.\s*([A-Za-z_$][\w$]*)',s):
+              members[m.group(1)]+=1
+          lines += ['## Direct NativeUI member references','']
+          lines += [f'- `{name}`: {count}' for name,count in members.most_common()]
+          lines += ['', '## Important limitation','', 'This is a lexical reconnaissance report. The member names are not treated as a final ABI until their call sites and argument shapes are reviewed in the extracted bundle.']
+          (out/'NATIVEUI-API-RECONNAISSANCE.md').write_text('\n'.join(lines)+'\n')
+          (out/'NATIVEUI-MEMBER-COUNTS.tsv').write_text('member\tcount\n'+'\n'.join(f'{k}\t{v}' for k,v in members.most_common())+'\n')
+          print(f'Bundle chars: {len(s)}; NativeUI member names: {len(members)}')
+          print('\n'.join(f'{k}: {v}' for k,v in members.most_common(100)))
+          PY
+      - name: Upload original bundle and API report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLACKBOX-ORIGINAL-NATIVEUI-API
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7
