@@ -1,0 +1,89 @@
+name: Inspect official PS5 BlackBox binary
+
+on:
+  push:
+    branches: [ps4-port]
+    paths:
+      - ".github/workflows/inspect-ps5-blackbox.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  download-and-inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Download official BlackBox.exfat release asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/blackbox-original" "$RUNNER_TEMP/blackbox-extracted"
+          URL="https://github.com/D3ATHLY/blackbox/releases/download/2.0.0/BlackBox.exfat"
+          curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
+            "$URL" --output "$RUNNER_TEMP/blackbox-original/BlackBox.exfat"
+          test -s "$RUNNER_TEMP/blackbox-original/BlackBox.exfat"
+          stat "$RUNNER_TEMP/blackbox-original/BlackBox.exfat"
+          sha256sum "$RUNNER_TEMP/blackbox-original/BlackBox.exfat" | tee "$RUNNER_TEMP/BLACKBOX-SHA256.txt"
+
+      - name: Inspect file format and attempt extraction
+        shell: bash
+        run: |
+          set +e
+          BIN="$RUNNER_TEMP/blackbox-original/BlackBox.exfat"
+          REPORT="$RUNNER_TEMP/BLACKBOX-ANALYSIS.txt"
+          {
+            echo "BLACKBOX OFFICIAL PS5 BINARY ANALYSIS"
+            echo "====================================="
+            date -u
+            echo
+            echo "== FILE DETAILS =="
+            file "$BIN"
+            stat "$BIN"
+            sha256sum "$BIN"
+            echo
+            echo "== FIRST 256 BYTES =="
+            xxd -l 256 "$BIN"
+            echo
+            echo "== ARCHIVE CONTENT LIST (7z) =="
+          } > "$REPORT"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq p7zip-full file
+          7z l -slt "$BIN" >> "$REPORT" 2>&1
+          LIST_RC=$?
+          echo "7z_list_exit_code=$LIST_RC" >> "$REPORT"
+          echo >> "$REPORT"
+          echo "== EXTRACTION ATTEMPT (7z) ==" >> "$REPORT"
+          7z x -y "-o$RUNNER_TEMP/blackbox-extracted" "$BIN" >> "$REPORT" 2>&1
+          EXTRACT_RC=$?
+          echo "7z_extract_exit_code=$EXTRACT_RC" >> "$REPORT"
+          echo >> "$REPORT"
+          echo "== EXTRACTED FILES ==" >> "$REPORT"
+          find "$RUNNER_TEMP/blackbox-extracted" -type f -printf '%P | %s bytes\n' | sort >> "$REPORT"
+          echo >> "$REPORT"
+          echo "== PRINTABLE STRINGS (first 12000 lines) ==" >> "$REPORT"
+          strings -a -n 6 "$BIN" | head -n 12000 >> "$REPORT"
+          echo >> "$REPORT"
+          echo "== TOP-LEVEL HEX SIGNATURES ==" >> "$REPORT"
+          for offset in 0 512 1024 4096 32768 65536 1048576; do
+            printf 'offset=%s ' "$offset" >> "$REPORT"
+            dd if="$BIN" bs=1 skip="$offset" count=32 status=none | xxd -p >> "$REPORT"
+          done
+          echo
+          echo "Analysis report generated: $REPORT"
+          cat "$REPORT"
+
+      - name: Upload original binary and analysis bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLACKBOX-PS5-ORIGINAL-ANALYSIS
+          path: |
+            ${{ runner.temp }}/blackbox-original/BlackBox.exfat
+            ${{ runner.temp }}/BLACKBOX-SHA256.txt
+            ${{ runner.temp }}/BLACKBOX-ANALYSIS.txt
+            ${{ runner.temp }}/blackbox-extracted/**
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
