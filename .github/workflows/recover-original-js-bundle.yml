@@ -24,7 +24,7 @@ jobs:
           sudo cp -a "$RUNNER_TEMP/mnt/." "$RUNNER_TEMP/root/"
           sudo umount "$RUNNER_TEMP/mnt"
           sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/root"
-      - name: Find exact JavaScript bundle boundary and validate source
+      - name: Discover and validate the embedded app bundle
         shell: bash
         run: |
           set -euo pipefail
@@ -32,52 +32,74 @@ jobs:
           import hashlib,pathlib,subprocess,sys
           src=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2])
           data=src.read_bytes()
-          start=0x5d7a680
-          if data[start:start+7] != b'(() => ':
-              raise SystemExit(f'Bundle prefix mismatch: {data[start:start+16]!r}')
-          markers=[b'})();', b'})();\n', b'})();\r\n']
-          candidates=[]
-          for marker in markers:
-              pos=start
+          expected=0x5d7a680
+          prefixes=[b'(() =>',b'(()=>',b'((() =>',b'(()=>{',b'(()=> {']
+          starts=[]
+          for prefix in prefixes:
+              p=0
               while True:
-                  pos=data.find(marker,pos)
-                  if pos<0: break
-                  end=pos+len(marker)
-                  if end-start >= 1024*1024:
-                      candidates.append((end,marker))
-                  pos+=1
-          candidates=sorted(set(candidates))
-          (out/'CANDIDATE-ENDINGS.txt').write_text(
-              '\n'.join(f'end=0x{e:x} marker={m!r}' for e,m in candidates[:5000])+'\n',
-              encoding='utf-8')
-          print(f'Found {len(candidates)} candidate endings after 1 MiB')
-          for end,marker in candidates[:5000]:
-              bundle=data[start:end]
-              target=out/'app.jsx.bundle.js'
-              target.write_bytes(bundle)
-              check=subprocess.run(['node','--check',str(target)],capture_output=True,text=True)
+                  p=data.find(prefix,p)
+                  if p<0: break
+                  if p>1024*1024: starts.append((p,prefix))
+                  p+=1
+          starts=sorted(set(starts),key=lambda x:x[0])
+          diag=[
+            f'eboot_size={len(data)}',
+            f'previous_candidate_offset=0x{expected:x}',
+            f'bytes_at_previous_candidate={data[expected:expected+32]!r}',
+            f'candidate_prefix_count={len(starts)}',
+            'candidate_prefixes:'
+          ]
+          diag += [f'0x{p:x} {prefix!r}' for p,prefix in starts[:300]]
+          (out/'BUNDLE-BOUNDARY-DIAGNOSTIC.txt').write_text('\n'.join(diag)+'\n')
+          endings=[b'})();',b'})();\n',b'})();\r\n',b'})();\n;',b'})();\r\n;']
+          candidates=[]
+          for start,prefix in starts:
+              if start>expected+32*1024*1024: continue
+              for marker in endings:
+                  pos=start+1024*1024
+                  while True:
+                      pos=data.find(marker,pos)
+                      if pos<0: break
+                      end=pos+len(marker)
+                      if end-start<=32*1024*1024:
+                          candidates.append((start,end,prefix,marker))
+                      pos+=1
+          candidates=sorted(set(candidates),key=lambda x:(x[1]-x[0],x[0]))
+          (out/'BUNDLE-END-CANDIDATES.txt').write_text(
+            '\n'.join(f'start=0x{s:x} end=0x{e:x} size={e-s} prefix={p!r} ending={m!r}' for s,e,p,m in candidates[:10000])+'\n')
+          print(f'Found {len(starts)} prefix positions and {len(candidates)} bounded end candidates')
+          target=out/'app.jsx.bundle.js'
+          tested=0
+          for start,end,prefix,marker in candidates[:10000]:
+              tested+=1
+              target.write_bytes(data[start:end])
+              check=subprocess.run(['node','--check',str(target)],capture_output=True,text=True,timeout=20)
               if check.returncode==0:
                   report=[
                     'ORIGINAL BLACKBOX APP BUNDLE',
                     'source=eboot.bin',
                     f'start_offset=0x{start:x}',
                     f'end_offset_exclusive=0x{end:x}',
-                    f'size_bytes={len(bundle)}',
-                    f'sha256={hashlib.sha256(bundle).hexdigest()}',
+                    f'size_bytes={end-start}',
+                    f'sha256={hashlib.sha256(data[start:end]).hexdigest()}',
+                    f'prefix={prefix!r}',
                     f'terminator={marker!r}',
-                    'node_check=PASS'
+                    f'node_check=PASS',
+                    f'candidates_tested={tested}'
                   ]
                   (out/'APP-BUNDLE-EXTRACTION-REPORT.txt').write_text('\n'.join(report)+'\n')
                   print('\n'.join(report))
                   break
           else:
+              target.unlink(missing_ok=True)
               (out/'APP-BUNDLE-EXTRACTION-REPORT.txt').write_text(
-                  'NO CANDIDATE PASSED node --check\n'
-                  f'start_offset=0x{start:x}\n'
-                  f'candidate_count={len(candidates)}\n')
-              raise SystemExit('No syntactically valid bundle boundary found')
+                'NO CANDIDATE PASSED node --check\n'
+                f'prefix_positions={len(starts)}\nend_candidates={len(candidates)}\n'
+                f'candidates_tested={tested}\n')
+              raise SystemExit('No candidate passed syntax validation; diagnostic artifact retained')
           PY
-      - name: Upload recovered source and boundary report
+      - name: Upload bundle and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
