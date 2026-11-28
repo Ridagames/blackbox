@@ -140,6 +140,27 @@ jobs:
           console.log('TOP HOST MEMBERS\n'+top(globals).split('\n').slice(0,120).join('\n'));
           console.log('TOP CALLS\n'+top(calls).split('\n').slice(0,100).join('\n'));
           JS
+      - name: Trace host calls and host wrapper implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/out/app.jsx.bundle.js" "$RUNNER_TEMP/out" <<'PY'
+          import pathlib,re,sys
+          p=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); s=p.read_text(errors='replace')
+          lines=['# BlackBox host() call trace','']
+          patterns=[r'function\s+host\b',r'(?:const|let|var)\s+host\s*=',r'\bhost\s*=\s*(?:function|\()',r'\bhost\s*\(',
+                    r'FileSystem\.',r'webURL\s*\(',r'\bnetworkTask\s*\(',r'\bexec\s*\(']
+          for pat in patterns:
+              matches=list(re.finditer(pat,s))
+              lines += [f'## {pat} — {len(matches)} matches','']
+              for m in matches[:160]:
+                  a=max(0,m.start()-450); b=min(len(s),m.end()+950)
+                  snippet=re.sub(r'\s+',' ',s[a:b])
+                  lines.append(f'- offset 0x{m.start():x}: {snippet[:1400]}')
+              lines.append('')
+          (out/'HOST-CALL-TRACE.md').write_text('\n'.join(lines)+'\n')
+          print('Host trace matches:',[(x,len(list(re.finditer(x,s)))) for x in patterns])
+          PY
       - name: Upload bridge analysis
         if: always()
         uses: actions/upload-artifact@v4
@@ -153,3 +174,5 @@ jobs:
 # Re-run trigger: host bridge reconnaissance pass 2
 
 # AST pass: recover concrete call and member-expression structure
+
+# Trace host() arguments and wrapper definition for PS4 bridge mapping
