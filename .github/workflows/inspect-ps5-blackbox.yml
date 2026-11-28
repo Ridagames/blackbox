@@ -11,15 +11,15 @@ permissions:
   contents: read
 
 jobs:
-  download-and-inspect:
+  download-and-extract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Download official BlackBox.exfat release asset
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/blackbox-original" "$RUNNER_TEMP/blackbox-extracted"
+          mkdir -p "$RUNNER_TEMP/blackbox-original" "$RUNNER_TEMP/blackbox-extracted" "$RUNNER_TEMP/blackbox-mount"
           URL="https://github.com/D3ATHLY/blackbox/releases/download/2.0.0/BlackBox.exfat"
           curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
             "$URL" --output "$RUNNER_TEMP/blackbox-original/BlackBox.exfat"
@@ -27,15 +27,19 @@ jobs:
           stat "$RUNNER_TEMP/blackbox-original/BlackBox.exfat"
           sha256sum "$RUNNER_TEMP/blackbox-original/BlackBox.exfat" | tee "$RUNNER_TEMP/BLACKBOX-SHA256.txt"
 
-      - name: Inspect file format and attempt extraction
+      - name: Install native EXFAT tools and inspect filesystem
         shell: bash
         run: |
           set +e
           BIN="$RUNNER_TEMP/blackbox-original/BlackBox.exfat"
           REPORT="$RUNNER_TEMP/BLACKBOX-ANALYSIS.txt"
+          MOUNT="$RUNNER_TEMP/blackbox-mount"
+          OUT="$RUNNER_TEMP/blackbox-extracted"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq exfatprogs file
           {
-            echo "BLACKBOX OFFICIAL PS5 BINARY ANALYSIS"
-            echo "====================================="
+            echo "BLACKBOX OFFICIAL PS5 EXFAT EXTRACTION"
+            echo "======================================"
             date -u
             echo
             echo "== FILE DETAILS =="
@@ -43,42 +47,50 @@ jobs:
             stat "$BIN"
             sha256sum "$BIN"
             echo
-            echo "== FIRST 256 BYTES =="
-            xxd -l 256 "$BIN"
+            echo "== EXFAT FILESYSTEM CHECK (READ ONLY) =="
+            fsck.exfat -n "$BIN" 2>&1
+            echo "fsck_exit_code=$?"
             echo
-            echo "== ARCHIVE CONTENT LIST (7z) =="
+            echo "== EXFAT VOLUME INFORMATION =="
+            dump.exfat "$BIN" 2>&1
+            echo "dump_exit_code=$?"
+            echo
+            echo "== MOUNT READ ONLY AND EXTRACT =="
           } > "$REPORT"
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq p7zip-full file
-          7z l -slt "$BIN" >> "$REPORT" 2>&1
-          LIST_RC=$?
-          echo "7z_list_exit_code=$LIST_RC" >> "$REPORT"
-          echo >> "$REPORT"
-          echo "== EXTRACTION ATTEMPT (7z) ==" >> "$REPORT"
-          7z x -y "-o$RUNNER_TEMP/blackbox-extracted" "$BIN" >> "$REPORT" 2>&1
-          EXTRACT_RC=$?
-          echo "7z_extract_exit_code=$EXTRACT_RC" >> "$REPORT"
-          echo >> "$REPORT"
-          echo "== EXTRACTED FILES ==" >> "$REPORT"
-          find "$RUNNER_TEMP/blackbox-extracted" -type f -printf '%P | %s bytes\n' | sort >> "$REPORT"
-          echo >> "$REPORT"
-          echo "== PRINTABLE STRINGS (first 12000 lines) ==" >> "$REPORT"
-          strings -a -n 6 "$BIN" | head -n 12000 >> "$REPORT"
-          echo >> "$REPORT"
-          echo "== TOP-LEVEL HEX SIGNATURES ==" >> "$REPORT"
-          for offset in 0 512 1024 4096 32768 65536 1048576; do
-            printf 'offset=%s ' "$offset" >> "$REPORT"
-            dd if="$BIN" bs=1 skip="$offset" count=32 status=none | xxd -p >> "$REPORT"
-          done
-          echo
-          echo "Analysis report generated: $REPORT"
+          sudo mount -t exfat -o loop,ro "$BIN" "$MOUNT" >> "$REPORT" 2>&1
+          MOUNT_RC=$?
+          echo "mount_exit_code=$MOUNT_RC" >> "$REPORT"
+          if [ "$MOUNT_RC" -eq 0 ]; then
+            echo "Mount successful. Copying original files..." | tee -a "$REPORT"
+            sudo find "$MOUNT" -mindepth 1 -maxdepth 4 -printf '%y | %P | %s bytes\n' | sort >> "$REPORT"
+            sudo cp -a "$MOUNT/." "$OUT/"
+            sudo chown -R "$(id -u):$(id -g)" "$OUT"
+            sudo umount "$MOUNT"
+            echo "Extraction completed." >> "$REPORT"
+          else
+            echo "Native mount failed; no files were extracted." >> "$REPORT"
+          fi
+          {
+            echo
+            echo "== EXTRACTED FILE INVENTORY =="
+            find "$OUT" -type f -printf '%P | %s bytes\n' | sort
+            echo
+            echo "== FILE COUNTS AND TOTAL SIZE =="
+            find "$OUT" -type f | wc -l
+            du -sh "$OUT"
+            echo
+            echo "== FILE TYPE SUMMARY =="
+            find "$OUT" -type f -print0 | xargs -0 -r file
+          } >> "$REPORT"
+          echo "=== REPORT ==="
           cat "$REPORT"
+          test "$MOUNT_RC" -eq 0
 
-      - name: Upload original binary and analysis bundle
+      - name: Upload original binary, extracted files and report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BLACKBOX-PS5-ORIGINAL-ANALYSIS
+          name: BLACKBOX-PS5-EXTRACTED-ORIGINAL
           path: |
             ${{ runner.temp }}/blackbox-original/BlackBox.exfat
             ${{ runner.temp }}/BLACKBOX-SHA256.txt
