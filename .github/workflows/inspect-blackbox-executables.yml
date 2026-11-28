@@ -1,0 +1,81 @@
+name: Deep inspect original BlackBox executables
+on:
+  push:
+    branches: [ps4-port]
+    paths:
+      - ".github/workflows/inspect-blackbox-executables.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Download and extract official BlackBox filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq exfatprogs file binutils binwalk
+          mkdir -p "$RUNNER_TEMP/bb" "$RUNNER_TEMP/mnt" "$RUNNER_TEMP/extracted" "$RUNNER_TEMP/analysis"
+          curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
+            "https://github.com/D3ATHLY/blackbox/releases/download/2.0.0/BlackBox.exfat" \
+            -o "$RUNNER_TEMP/bb/BlackBox.exfat"
+          sudo mount -t exfat -o loop,ro "$RUNNER_TEMP/bb/BlackBox.exfat" "$RUNNER_TEMP/mnt"
+          sudo cp -a "$RUNNER_TEMP/mnt/." "$RUNNER_TEMP/extracted/"
+          sudo umount "$RUNNER_TEMP/mnt"
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/extracted"
+      - name: Inspect ELF structure, strings and embedded file signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/extracted"
+          OUT="$RUNNER_TEMP/analysis"
+          mkdir -p "$OUT/embedded"
+          find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -print0 | while IFS= read -r -d '' f; do
+            rel="\${f#"$ROOT"/}"
+            safe="$(printf '%s' "$rel" | tr '/ ' '__')"
+            {
+              echo "FILE: $rel"
+              echo "SIZE: $(stat -c %s "$f")"
+              file "$f"
+              echo
+              echo "===== ELF HEADER / SECTIONS ====="
+              readelf -h -l -S "$f" 2>&1 || true
+              echo
+              echo "===== DYNAMIC / SYMBOL INFO ====="
+              readelf -d -s "$f" 2>&1 | head -n 1200 || true
+              echo
+              echo "===== INTERESTING STRINGS ====="
+              strings -a -n 5 "$f" | grep -Ei 'audio|sound|music|ogg|opus|mp3|wav|flac|video|webm|mp4|jpeg|png|dds|texture|sprite|animation|\\.json|\\.js|\\.css|\\.html|font|shader|\\.prx|sce[A-Z_]' | head -n 2500 || true
+            } > "$OUT/$safe.txt"
+            if [ "$(basename "$f")" = "eboot.bin" ]; then
+              binwalk "$f" > "$OUT/eboot-binwalk.txt" 2>&1 || true
+              binwalk -eM --directory "$OUT/embedded" "$f" > "$OUT/eboot-binwalk-extract.txt" 2>&1 || true
+            fi
+          done
+          {
+            echo "BLACKBOX EXECUTABLE DEEP INSPECTION"
+            echo "==================================="
+            date -u
+            echo
+            echo "Executable files inspected:"
+            find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -printf '%P | %s bytes\n' | sort
+            echo
+            echo "Extracted embedded files:"
+            find "$OUT/embedded" -type f -printf '%P | %s bytes\n' | sort || true
+            echo
+            echo "Embedded extraction size:"
+            du -sh "$OUT/embedded" || true
+          } > "$OUT/REPORT.txt"
+          cat "$OUT/REPORT.txt"
+      - name: Upload executable analysis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLACKBOX-EXECUTABLE-DEEP-ANALYSIS
+          path: \${{ runner.temp }}/analysis/
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
