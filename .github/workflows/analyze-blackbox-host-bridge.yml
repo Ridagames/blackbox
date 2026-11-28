@@ -123,3 +123,5 @@ jobs:
           if-no-files-found: warn
           compression-level: 6
           retention-days: 7
+
+# Re-run trigger: host bridge reconnaissance pass 2
