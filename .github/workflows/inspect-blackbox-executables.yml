@@ -17,7 +17,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq exfatprogs file binutils binwalk 7zip ffmpeg python3
+          sudo apt-get install -y -qq exfatprogs file binutils binwalk 7zip ffmpeg python3 lrzip lz4 xz-utils
           mkdir -p "$RUNNER_TEMP/bb" "$RUNNER_TEMP/mnt" "$RUNNER_TEMP/extracted" "$RUNNER_TEMP/analysis"
           curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
             "https://github.com/D3ATHLY/blackbox/releases/download/2.0.0/BlackBox.exfat" \
@@ -39,14 +39,8 @@ jobs:
               echo "FILE: $rel"
               echo "SIZE: $(stat -c %s "$f")"
               file "$f"
-              echo
-              echo "===== ELF HEADER / SECTIONS ====="
               readelf -h -l -S "$f" 2>&1 || true
-              echo
-              echo "===== DYNAMIC / SYMBOL INFO ====="
               readelf -d -s "$f" 2>&1 | head -n 1200 || true
-              echo
-              echo "===== INTERESTING STRINGS ====="
               strings -a -n 5 "$f" | grep -Ei 'audio|sound|music|ogg|opus|mp3|wav|flac|video|webm|mp4|jpeg|png|dds|texture|sprite|animation|\\.json|\\.js|\\.css|\\.html|font|shader|\\.prx|sce[A-Z_]' | head -n 2500 || true
             } > "$OUT/$safe.txt"
             if [ "$(basename "$f")" = "eboot.bin" ]; then
@@ -70,25 +64,25 @@ jobs:
               for name in files:
                   if name == "eboot.bin" or name.endswith((".elf", ".prx")):
                       targets.append(os.path.join(base, name))
-          needles = re.compile(rb"(?i)(quickjs|react|webpack|rollup|vite|sourceMappingURL|module\.exports|exports\.|createElement|\.jsx?|\.css|\.html|\.wasm|base64|data:audio|data:image|\.mp3|\.ogg|\.opus|\.wav|\.webm|\.mp4)")
+          needles = re.compile(rb"(?i)(quickjs|react|webpack|rollup|vite|sourceMappingURL|module\\.exports|exports\\.|createElement|\\.jsx?|\\.css|\\.html|\\.wasm|base64|data:audio|data:image|\\.mp3|\\.ogg|\\.opus|\\.wav|\\.webm|\\.mp4)")
           with report.open("w", encoding="utf-8") as w:
               for path in sorted(targets):
                   rel = os.path.relpath(path, root)
-                  w.write(f"\n===== {rel} ({os.path.getsize(path)} bytes) =====\n")
+                  w.write(f"\\n===== {rel} ({os.path.getsize(path)} bytes) =====\\n")
                   if path.endswith((".elf", ".prx")) or os.path.basename(path) == "eboot.bin":
                       p = subprocess.run(["readelf", "-SW", path], capture_output=True, text=True)
                       w.write(p.stdout[:50000] if p.stdout else p.stderr[:5000])
                   data = pathlib.Path(path).read_bytes()
                   hits = list(needles.finditer(data))
-                  w.write(f"\nAPP/MEDIA STRING MATCHES: {len(hits)}\n")
+                  w.write(f"\\nAPP/MEDIA STRING MATCHES: {len(hits)}\\n")
                   for m in hits[:500]:
                       a, b = max(0, m.start()-100), min(len(data), m.end()+180)
-                      snippet = data[a:b].replace(b"\x00", b" ")
-                      w.write(f"offset=0x{m.start():x} {snippet.decode('utf-8','replace')}\n")
+                      snippet = data[a:b].replace(b"\\x00", b" ")
+                      w.write(f"offset=0x{m.start():x} {snippet.decode('utf-8','replace')}\\n")
                   if path.endswith((".elf", ".prx")):
                       sec = subprocess.run(["readelf", "-SW", path], capture_output=True, text=True).stdout
                       for line in sec.splitlines():
-                          m = re.search(r"\[\s*\d+\]\s+(\S+)\s+\S+\s+\S+\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)", line)
+                          m = re.search(r"\\[\\s*\\d+\\]\\s+(\\S+)\\s+\\S+\\s+\\S+\\s+([0-9a-fA-F]+)\\s+([0-9a-fA-F]+)", line)
                           if not m:
                               continue
                           name, off, size = m.group(1), int(m.group(2),16), int(m.group(3),16)
@@ -96,7 +90,7 @@ jobs:
                               continue
                           dest = pathlib.Path(out) / "section-dumps" / (rel.replace("/", "__") + name.replace(".", "_") + ".bin")
                           dest.write_bytes(data[off:off+size])
-                          w.write(f"SECTION_DUMP {name} offset=0x{off:x} size={size} path={dest.name}\n")
+                          w.write(f"SECTION_DUMP {name} offset=0x{off:x} size={size} path={dest.name}\\n")
           PY
       - name: Validate embedded archive and video candidates
         shell: bash
@@ -107,21 +101,14 @@ jobs:
           BIN="$ROOT/eboot.bin"
           mkdir -p "$OUT"
           probe() {
-            label="$1"
-            offset="$2"
-            count="$3"
-            target="$OUT/$label.bin"
+            label="$1"; offset="$2"; count="$3"; target="$OUT/$label.bin"
             echo "===== $label at offset $offset =====" | tee -a "$OUT/VALIDATION.txt"
             dd if="$BIN" of="$target" iflag=skip_bytes,count_bytes skip="$offset" count="$count" status=none
             file "$target" | tee -a "$OUT/VALIDATION.txt"
-            echo "--- 7z listing ---" | tee -a "$OUT/VALIDATION.txt"
             timeout 30 7z l -slt "$target" >> "$OUT/VALIDATION.txt" 2>&1 || true
-            echo "--- ffprobe ---" | tee -a "$OUT/VALIDATION.txt"
             timeout 20 ffprobe -v error -show_format -show_streams "$target" >> "$OUT/VALIDATION.txt" 2>&1 || true
             echo | tee -a "$OUT/VALIDATION.txt"
           }
-          # Earlier signatures near the file header were false positives.
-          # Probe additional compressed/archive signatures reported deeper in eboot.bin.
           probe lrzip-offset-26141197 26141197 33554432
           probe lz4-offset-26141416 26141416 33554432
           probe lz4-offset-26141424 26141424 33554432
@@ -133,13 +120,12 @@ jobs:
           probe 7z-offset-29843420 29843420 33554432
           probe xz-offset-31192560 31192560 33554432
           probe rar-offset-31192567 31192567 33554432
-          cat "$OUT/VALIDATION.txt"
           echo "===== Native decompressor checks =====" | tee -a "$OUT/VALIDATION.txt"
           for f in "$OUT"/*.bin; do
             case "$f" in
-              *lrzip*) echo "--- $f / lrzip ---" | tee -a "$OUT/VALIDATION.txt"; timeout 30 lrzip -t "$f" >> "$OUT/VALIDATION.txt" 2>&1 || true ;;
-              *lz4*) echo "--- $f / lz4 ---" | tee -a "$OUT/VALIDATION.txt"; timeout 30 lz4 -t "$f" >> "$OUT/VALIDATION.txt" 2>&1 || true ;;
-              *xz*) echo "--- $f / xz ---" | tee -a "$OUT/VALIDATION.txt"; timeout 30 xz -t "$f" >> "$OUT/VALIDATION.txt" 2>&1 || true ;;
+              *lrzip*) timeout 30 lrzip -t "$f" >> "$OUT/VALIDATION.txt" 2>&1 || true ;;
+              *lz4*) timeout 30 lz4 -t "$f" >> "$OUT/VALIDATION.txt" 2>&1 || true ;;
+              *xz*) timeout 30 xz -t "$f" >> "$OUT/VALIDATION.txt" 2>&1 || true ;;
             esac
           done
           cat "$OUT/VALIDATION.txt"
@@ -148,20 +134,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/extracted"
-          OUT="$RUNNER_TEMP/analysis"
-          {
-            echo "BLACKBOX EXECUTABLE DEEP INSPECTION"
-            echo "==================================="
-            date -u
-            echo
-            echo "Executable files inspected:"
-            find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -printf '%P | %s bytes\\n' | sort
-            echo
-            echo "Candidate archive/video validation: candidate-validation/VALIDATION.txt"
-            echo "ELF section dumps: section-dumps/"
-            echo "Bundled app code scan: SECTION-MAP-AND-APP-CODE.txt"
-          } > "$OUT/REPORT.txt"
+          ROOT="$RUNNER_TEMP/extracted"; OUT="$RUNNER_TEMP/analysis"
+          { echo "BLACKBOX EXECUTABLE DEEP INSPECTION"; date -u; find "$ROOT" -type f \\( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \\) -printf '%P | %s bytes\\n' | sort; } > "$OUT/REPORT.txt"
           cat "$OUT/REPORT.txt"
       - name: Upload executable analysis
         if: always()
