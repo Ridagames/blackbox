@@ -1,0 +1,88 @@
+name: Recover original BlackBox JavaScript bundle
+on:
+  push:
+    branches: [ps4-port]
+    paths:
+      - ".github/workflows/recover-original-js-bundle.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Download original BlackBox filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq exfatprogs
+          mkdir -p "$RUNNER_TEMP/bb" "$RUNNER_TEMP/mnt" "$RUNNER_TEMP/root" "$RUNNER_TEMP/out"
+          curl --fail --location --retry 5 --retry-all-errors "https://github.com/D3ATHLY/blackbox/releases/download/2.0.0/BlackBox.exfat" -o "$RUNNER_TEMP/bb/BlackBox.exfat"
+          sudo mount -t exfat -o loop,ro "$RUNNER_TEMP/bb/BlackBox.exfat" "$RUNNER_TEMP/mnt"
+          sudo cp -a "$RUNNER_TEMP/mnt/." "$RUNNER_TEMP/root/"
+          sudo umount "$RUNNER_TEMP/mnt"
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/root"
+      - name: Find exact JavaScript bundle boundary and validate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/root/eboot.bin" "$RUNNER_TEMP/out" <<'PY'
+          import hashlib,pathlib,subprocess,sys
+          src=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2])
+          data=src.read_bytes()
+          start=0x5d7a680
+          if data[start:start+7] != b'(() => ':
+              raise SystemExit(f'Bundle prefix mismatch: {data[start:start+16]!r}')
+          markers=[b'})();', b'})();\n', b'})();\r\n']
+          candidates=[]
+          for marker in markers:
+              pos=start
+              while True:
+                  pos=data.find(marker,pos)
+                  if pos<0: break
+                  end=pos+len(marker)
+                  if end-start >= 1024*1024:
+                      candidates.append((end,marker))
+                  pos+=1
+          candidates=sorted(set(candidates))
+          (out/'CANDIDATE-ENDINGS.txt').write_text(
+              '\n'.join(f'end=0x{e:x} marker={m!r}' for e,m in candidates[:5000])+'\n',
+              encoding='utf-8')
+          print(f'Found {len(candidates)} candidate endings after 1 MiB')
+          for end,marker in candidates[:5000]:
+              bundle=data[start:end]
+              target=out/'app.jsx.bundle.js'
+              target.write_bytes(bundle)
+              check=subprocess.run(['node','--check',str(target)],capture_output=True,text=True)
+              if check.returncode==0:
+                  report=[
+                    'ORIGINAL BLACKBOX APP BUNDLE',
+                    'source=eboot.bin',
+                    f'start_offset=0x{start:x}',
+                    f'end_offset_exclusive=0x{end:x}',
+                    f'size_bytes={len(bundle)}',
+                    f'sha256={hashlib.sha256(bundle).hexdigest()}',
+                    f'terminator={marker!r}',
+                    'node_check=PASS'
+                  ]
+                  (out/'APP-BUNDLE-EXTRACTION-REPORT.txt').write_text('\n'.join(report)+'\n')
+                  print('\n'.join(report))
+                  break
+          else:
+              (out/'APP-BUNDLE-EXTRACTION-REPORT.txt').write_text(
+                  'NO CANDIDATE PASSED node --check\n'
+                  f'start_offset=0x{start:x}\n'
+                  f'candidate_count={len(candidates)}\n')
+              raise SystemExit('No syntactically valid bundle boundary found')
+          PY
+      - name: Upload recovered source and boundary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLACKBOX-ORIGINAL-JAVASCRIPT-BUNDLE
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7
