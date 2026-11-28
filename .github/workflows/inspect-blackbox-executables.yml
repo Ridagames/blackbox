@@ -32,7 +32,6 @@ jobs:
           set -euo pipefail
           ROOT="$RUNNER_TEMP/extracted"
           OUT="$RUNNER_TEMP/analysis"
-          mkdir -p "$OUT/embedded"
           find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -print0 | while IFS= read -r -d '' f; do
             rel="${f#"$ROOT"/}"
             safe="$(printf '%s' "$rel" | tr '/ ' '__')"
@@ -52,7 +51,6 @@ jobs:
             } > "$OUT/$safe.txt"
             if [ "$(basename "$f")" = "eboot.bin" ]; then
               binwalk "$f" > "$OUT/eboot-binwalk.txt" 2>&1 || true
-              binwalk -eM --directory "$OUT/embedded" "$f" > "$OUT/eboot-binwalk-extract.txt" 2>&1 || true
             fi
           done
           {
@@ -61,13 +59,9 @@ jobs:
             date -u
             echo
             echo "Executable files inspected:"
-            find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -printf '%P | %s bytes\n' | sort
+            find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -printf '%P | %s bytes\\n' | sort
             echo
-            echo "Extracted embedded files:"
-            find "$OUT/embedded" -type f -printf '%P | %s bytes\n' | sort || true
-            echo
-            echo "Embedded extraction size:"
-            du -sh "$OUT/embedded" || true
+            echo "NOTE: Binwalk signature scan only. No recursive carving is performed because overlapping signatures produced oversized false-positive archives."
           } > "$OUT/REPORT.txt"
           cat "$OUT/REPORT.txt"
       - name: Upload executable analysis
@@ -77,5 +71,5 @@ jobs:
           name: BLACKBOX-EXECUTABLE-DEEP-ANALYSIS
           path: ${{ runner.temp }}/analysis/
           if-no-files-found: warn
-          compression-level: 0
+          compression-level: 6
           retention-days: 7
