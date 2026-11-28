@@ -92,6 +92,36 @@ jobs:
                           dest.write_bytes(data[off:off+size])
                           w.write(f"SECTION_DUMP {name} offset=0x{off:x} size={size} path={dest.name}\\n")
           PY
+      - name: Extract embedded React JavaScript bundle candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/extracted"
+          OUT="$RUNNER_TEMP/analysis/bundle-candidate"
+          mkdir -p "$OUT"
+          BIN="$ROOT/eboot.bin"
+          python3 - "$BIN" "$OUT" <<'PY'
+          import pathlib,sys,hashlib,re
+          src=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2])
+          data=src.read_bytes()
+          # Offset containing bundled React module source paths and production React code.
+          start=0x5d7ac00
+          length=min(64*1024*1024,len(data)-start)
+          sample=data[start:start+length]
+          (out/'eboot-offset-0x5d7ac00-64MiB.bin').write_bytes(sample)
+          report=[]
+          report.append(f'file_size={len(data)}')
+          report.append(f'candidate_offset=0x{start:x} ({start})')
+          report.append(f'candidate_size={len(sample)}')
+          report.append(f'sha256={hashlib.sha256(sample).hexdigest()}')
+          for token in [b'var require_react_production_min',b'function(',b'createElement',b'upscale',b'app.jsx.bundle',b'//# sourceMappingURL',b'__webpack_require__']:
+              hits=[m.start()+start for m in re.finditer(re.escape(token),sample)]
+              report.append(f'{token.decode(errors="replace")}: {len(hits)} hits '+', '.join(hex(x) for x in hits[:20]))
+          (out/'BUNDLE-CANDIDATE-REPORT.txt').write_text('\\n'.join(report)+'\\n')
+          PY
+          file "$OUT/eboot-offset-0x5d7ac00-64MiB.bin" > "$OUT/FILE-TYPE.txt"
+          strings -a -n 8 "$OUT/eboot-offset-0x5d7ac00-64MiB.bin" | head -n 2000 > "$OUT/STRINGS-SAMPLE.txt"
+          cat "$OUT/BUNDLE-CANDIDATE-REPORT.txt"
       - name: Validate embedded archive and video candidates
         shell: bash
         run: |
