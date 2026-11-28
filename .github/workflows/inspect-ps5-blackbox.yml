@@ -86,7 +86,71 @@ jobs:
           cat "$REPORT"
           test "$MOUNT_RC" -eq 0
 
-      - name: Upload original binary, extracted files and report
+      - name: Build curated original resources archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/blackbox-extracted"
+          PACK="$RUNNER_TEMP/BLACKBOX-ORIGINAL-RESOURCES"
+          mkdir -p "$PACK"
+          for item in data i18n fonts sce_sys notices; do
+            if [ -d "$ROOT/$item" ]; then
+              cp -a "$ROOT/$item" "$PACK/"
+            fi
+          done
+          python3 - "$PACK" "$RUNNER_TEMP/BLACKBOX-ORIGINAL-RESOURCES/README.txt" <<'PY'
+          import json, os, sys
+          root, readme = sys.argv[1:]
+          files = []
+          ext = {}
+          for base, _, names in os.walk(root):
+              for name in names:
+                  path = os.path.join(base, name)
+                  rel = os.path.relpath(path, root)
+                  files.append(rel)
+                  suffix = os.path.splitext(name)[1].lower() or "[no extension]"
+                  ext[suffix] = ext.get(suffix, 0) + 1
+          pages = [p for p in files if p.startswith("data/pages/") and p.endswith(".json")]
+          locales = [p for p in files if p.startswith("i18n/locales/") and p.endswith(".json")]
+          lines = [
+              "BLACKBOX — ORIGINAL RESOURCE EXTRACTION",
+              "========================================",
+              "",
+              "This archive preserves original files extracted from the official BlackBox.exfat filesystem.",
+              "Included directories: data/, i18n/, fonts/, sce_sys/, notices/.",
+              "The native PS5 executable and the full EXFAT image are intentionally not duplicated here.",
+              "",
+              f"Total files: {len(files)}",
+              f"Game page JSON files: {len(pages)}",
+              f"Locale JSON files: {len(locales)}",
+              "",
+              "File counts by extension:"
+          ]
+          lines += [f"{k}: {v}" for k, v in sorted(ext.items())]
+          lines += [
+              "",
+              "Note: catalog JSON files may contain remote image URLs rather than local image files.",
+              "No media file is claimed as extracted unless it is present as a standalone file in this archive."
+          ]
+          with open(readme, "w", encoding="utf-8") as f:
+              f.write("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          PY
+          cd "$RUNNER_TEMP"
+          python3 - <<'PY'
+          import os, zipfile
+          root = "BLACKBOX-ORIGINAL-RESOURCES"
+          target = "BLACKBOX-ORIGINAL-RESOURCES.zip"
+          with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+              for base, _, files in os.walk(root):
+                  for name in files:
+                      path = os.path.join(base, name)
+                      z.write(path, path)
+          print(f"Created {target}: {os.path.getsize(target)} bytes")
+          PY
+          sha256sum "$RUNNER_TEMP/BLACKBOX-ORIGINAL-RESOURCES.zip" | tee "$RUNNER_TEMP/BLACKBOX-ORIGINAL-RESOURCES-SHA256.txt"
+
+      - name: Upload original binary, full extraction, resource pack and report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -95,6 +159,8 @@ jobs:
             ${{ runner.temp }}/blackbox-original/BlackBox.exfat
             ${{ runner.temp }}/BLACKBOX-SHA256.txt
             ${{ runner.temp }}/BLACKBOX-ANALYSIS.txt
+            ${{ runner.temp }}/BLACKBOX-ORIGINAL-RESOURCES.zip
+            ${{ runner.temp }}/BLACKBOX-ORIGINAL-RESOURCES-SHA256.txt
             ${{ runner.temp }}/blackbox-extracted/**
           if-no-files-found: warn
           compression-level: 0
