@@ -92,71 +92,46 @@ jobs:
                           dest.write_bytes(data[off:off+size])
                           w.write(f"SECTION_DUMP {name} offset=0x{off:x} size={size} path={dest.name}\\n")
           PY
-      - name: Locate and extract original BlackBox JavaScript bundle
+      - name: Locate PS5-REACT bundle markers and extract bounded candidates
         shell: bash
         run: |
           set -euo pipefail
           ROOT="$RUNNER_TEMP/extracted"
           OUT="$RUNNER_TEMP/analysis/original-app"
-          mkdir -p "$OUT"
+          mkdir -p "$OUT/candidates"
           python3 - "$ROOT/eboot.bin" "$OUT" <<'PY'
-          import pathlib,sys,re,hashlib,subprocess,tempfile
+          import pathlib,sys,re,hashlib
           src=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2])
           data=src.read_bytes()
-          hint=0x5d7ac00
-          end_marker=b'})();\\n\\x00'
-          end=data.find(end_marker,hint)
-          if end < 0:
-              raise SystemExit('Could not locate the verified JavaScript bundle ending')
-          end += len(end_marker)-1
-          window_start=max(0,hint-4*1024*1024)
-          window=data[window_start:hint]
-          signatures=[
-              b'var __defProp = Object.defineProperty',
-              b'var __getOwnPropNames = Object.getOwnPropertyNames',
-              b'var __commonJS =',
-              b'var __esm =',
-              b'var __toESM =',
-              b'var __toCommonJS =',
-              b'(() => {',
-              b'(function () {',
-              b'(function(){'
-          ]
-          candidates=[]
-          report=[]
-          report.append(f'eboot_size={len(data)}')
-          report.append(f'end_offset=0x{end:x}')
-          report.append(f'end_marker={end_marker!r}')
-          for sig in signatures:
-              hits=[m.start()+window_start for m in re.finditer(re.escape(sig),window)]
-              report.append(f'{sig.decode(errors="replace")}: '+', '.join(hex(x) for x in hits))
-              candidates.extend(hits)
-          # Try syntactically valid starts in ascending order, choosing the earliest complete wrapper.
-          valid=[]
-          for start in sorted(set(candidates)):
-              if start >= end: continue
+          markers=[b'app.jsx.bundle',b'upscale',b'[PS5-REACT]',b'QuickJS-ng',b'embedded-react']
+          report=[f'eboot_size={len(data)}',f'eboot_sha256={hashlib.sha256(data).hexdigest()}']
+          found=[]
+          for marker in markers:
+              hits=[m.start() for m in re.finditer(re.escape(marker),data,re.I)]
+              report.append(f'MARKER {marker.decode(errors="replace")}: count={len(hits)} offsets='+','.join(hex(x) for x in hits[:100]))
+              found.extend((p,marker) for p in hits)
+          # Save bounded binary windows around every app.jsx.bundle marker; no guessed JS end marker.
+          bundle_hits=[p for p,m in found if m==b'app.jsx.bundle']
+          if not bundle_hits:
+              report.append('STATUS=APP_BUNDLE_MARKER_NOT_FOUND')
+          for i,pos in enumerate(bundle_hits):
+              start=max(0,pos-4*1024*1024); end=min(len(data),pos+12*1024*1024)
               payload=data[start:end]
-              with tempfile.NamedTemporaryFile(suffix='.js') as tmp:
-                  tmp.write(payload); tmp.flush()
-                  p=subprocess.run(['node','--check',tmp.name],capture_output=True,text=True)
-              report.append(f'node_check_start=0x{start:x} result={"PASS" if p.returncode==0 else "FAIL"}')
-              if p.returncode==0:
-                  valid.append((start,payload))
-          if not valid:
-              # Preserve the exact source region for further parser-aware boundary analysis.
-              start=hint
-              payload=data[start:end]
-              (out/'BLACKBOX-APP-SOURCE-CANDIDATE.js').write_bytes(payload)
-              report.append('STATUS=NO_COMPLETE_WRAPPER_START_FOUND')
-              report.append(f'candidate_start=0x{start:x}')
-          else:
-              start,payload=valid[0]
-              (out/'BLACKBOX-ORIGINAL-APP-BUNDLE.js').write_bytes(payload)
-              report.append('STATUS=COMPLETE_JS_BUNDLE_EXTRACTED')
-              report.append(f'bundle_start=0x{start:x}')
-              report.append(f'bundle_size={len(payload)}')
-              report.append(f'bundle_sha256={hashlib.sha256(payload).hexdigest()}')
-          (out/'BUNDLE-EXTRACTION-REPORT.txt').write_text('\\n'.join(report)+'\\n')
+              dest=out/'candidates'/f'app-bundle-context-{i:02d}-0x{pos:x}.bin'
+              dest.write_bytes(payload)
+              report.append(f'CANDIDATE {dest.name} marker=0x{pos:x} start=0x{start:x} end=0x{end:x} size={len(payload)} sha256={hashlib.sha256(payload).hexdigest()}')
+              # Human-readable strings around the marker help establish whether this is source or logging data.
+              lo=max(0,pos-8192); hi=min(len(data),pos+65536)
+              block=data[lo:hi]
+              strings=re.findall(rb'[ -~]{6,}',block)
+              (out/'candidates'/f'app-bundle-context-{i:02d}-strings.txt').write_text(
+                  '\n'.join(x.decode('utf-8','replace') for x in strings),encoding='utf-8')
+          # Record JS-like tokens globally with offsets to find the real code/data boundary.
+          tokens=[b'function(',b'function (',b'=>',b'createElement',b'__webpack_require__',b'__commonJS',b'exports.',b'require(',b'from "',b'from \'']
+          for token in tokens:
+              hits=[m.start() for m in re.finditer(re.escape(token),data)]
+              report.append(f'TOKEN {token!r}: count={len(hits)} offsets='+','.join(hex(x) for x in hits[:80]))
+          (out/'BUNDLE-EXTRACTION-REPORT.txt').write_text('\n'.join(report)+'\n',encoding='utf-8')
           PY
           cat "$OUT/BUNDLE-EXTRACTION-REPORT.txt"
       - name: Validate embedded archive and video candidates
