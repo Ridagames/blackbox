@@ -135,7 +135,7 @@ jobs:
         run: |
           set -euo pipefail
           ROOT="$RUNNER_TEMP/extracted"; OUT="$RUNNER_TEMP/analysis"
-          { echo "BLACKBOX EXECUTABLE DEEP INSPECTION"; date -u; find "$ROOT" -type f \\( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \\) -printf '%P | %s bytes\\n' | sort; } > "$OUT/REPORT.txt"
+          { echo "BLACKBOX EXECUTABLE DEEP INSPECTION"; date -u; find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -printf '%P | %s bytes\n' | sort; } > "$OUT/REPORT.txt"
           cat "$OUT/REPORT.txt"
       - name: Upload executable analysis
         if: always()
