@@ -17,7 +17,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq exfatprogs file binutils binwalk
+          sudo apt-get install -y -qq exfatprogs file binutils binwalk 7zip ffmpeg
           mkdir -p "$RUNNER_TEMP/bb" "$RUNNER_TEMP/mnt" "$RUNNER_TEMP/extracted" "$RUNNER_TEMP/analysis"
           curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
             "https://github.com/D3ATHLY/blackbox/releases/download/2.0.0/BlackBox.exfat" \
@@ -53,15 +53,53 @@ jobs:
               binwalk "$f" > "$OUT/eboot-binwalk.txt" 2>&1 || true
             fi
           done
+      - name: Validate embedded archive and video candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/extracted"
+          OUT="$RUNNER_TEMP/analysis/candidate-validation"
+          BIN="$ROOT/eboot.bin"
+          mkdir -p "$OUT"
+          probe() {
+            label="$1"
+            offset="$2"
+            count="$3"
+            target="$OUT/$label.bin"
+            echo "===== $label at offset $offset =====" | tee -a "$OUT/VALIDATION.txt"
+            dd if="$BIN" of="$target" iflag=skip_bytes,count_bytes skip="$offset" count="$count" status=none
+            file "$target" | tee -a "$OUT/VALIDATION.txt"
+            echo "--- 7z listing ---" | tee -a "$OUT/VALIDATION.txt"
+            timeout 30 7z l -slt "$target" >> "$OUT/VALIDATION.txt" 2>&1 || true
+            echo "--- ffprobe ---" | tee -a "$OUT/VALIDATION.txt"
+            timeout 20 ffprobe -v error -show_format -show_streams "$target" >> "$OUT/VALIDATION.txt" 2>&1 || true
+            echo | tee -a "$OUT/VALIDATION.txt"
+          }
+          # Binwalk offsets are byte offsets. These are bounded samples, not blind full-file carving.
+          probe zip-offset-284665 284665 16777216
+          probe rar-offset-248551 248551 16777216
+          probe rar-offset-275306 275306 16777216
+          probe rar-offset-279795 279795 16777216
+          probe rar-offset-284572 284572 16777216
+          probe ebml-offset-13240696 13240696 33554432
+          cat "$OUT/VALIDATION.txt"
+      - name: Build inspection report
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/extracted"
+          OUT="$RUNNER_TEMP/analysis"
           {
             echo "BLACKBOX EXECUTABLE DEEP INSPECTION"
             echo "==================================="
             date -u
             echo
             echo "Executable files inspected:"
-            find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -printf '%P | %s bytes\\n' | sort
+            find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -printf '%P | %s bytes\n' | sort
             echo
-            echo "NOTE: Binwalk signature scan only. No recursive carving is performed because overlapping signatures produced oversized false-positive archives."
+            echo "Candidate archive/video validation: candidate-validation/VALIDATION.txt"
+            echo "Signatures are treated as candidates until the corresponding parser confirms a valid container and its contents."
           } > "$OUT/REPORT.txt"
           cat "$OUT/REPORT.txt"
       - name: Upload executable analysis
