@@ -120,12 +120,28 @@ jobs:
             timeout 20 ffprobe -v error -show_format -show_streams "$target" >> "$OUT/VALIDATION.txt" 2>&1 || true
             echo | tee -a "$OUT/VALIDATION.txt"
           }
-          probe zip-offset-284665 284665 16777216
-          probe rar-offset-248551 248551 16777216
-          probe rar-offset-275306 275306 16777216
-          probe rar-offset-279795 279795 16777216
-          probe rar-offset-284572 284572 16777216
-          probe ebml-offset-13240696 13240696 33554432
+          # Earlier signatures near the file header were false positives.
+          # Probe additional compressed/archive signatures reported deeper in eboot.bin.
+          probe lrzip-offset-26141197 26141197 33554432
+          probe lz4-offset-26141416 26141416 33554432
+          probe lz4-offset-26141424 26141424 33554432
+          probe rar-offset-26215714 26215714 33554432
+          probe rar-offset-26216240 26216240 33554432
+          probe rar-offset-26227457 26227457 33554432
+          probe zip-footer-offset-26259933 26259933 33554432
+          probe xz-offset-29709065 29709065 33554432
+          probe 7z-offset-29843420 29843420 33554432
+          probe xz-offset-31192560 31192560 33554432
+          probe rar-offset-31192567 31192567 33554432
+          cat "$OUT/VALIDATION.txt"
+          echo "===== Native decompressor checks =====" | tee -a "$OUT/VALIDATION.txt"
+          for f in "$OUT"/*.bin; do
+            case "$f" in
+              *lrzip*) echo "--- $f / lrzip ---" | tee -a "$OUT/VALIDATION.txt"; timeout 30 lrzip -t "$f" >> "$OUT/VALIDATION.txt" 2>&1 || true ;;
+              *lz4*) echo "--- $f / lz4 ---" | tee -a "$OUT/VALIDATION.txt"; timeout 30 lz4 -t "$f" >> "$OUT/VALIDATION.txt" 2>&1 || true ;;
+              *xz*) echo "--- $f / xz ---" | tee -a "$OUT/VALIDATION.txt"; timeout 30 xz -t "$f" >> "$OUT/VALIDATION.txt" 2>&1 || true ;;
+            esac
+          done
           cat "$OUT/VALIDATION.txt"
       - name: Build inspection report
         if: always()
