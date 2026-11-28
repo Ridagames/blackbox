@@ -1,0 +1,110 @@
+name: Extract original BlackBox catalog artwork
+on:
+  push:
+    branches: [ps4-port]
+    paths:
+      - ".github/workflows/extract-blackbox-artwork.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  artwork:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Download and mount official BlackBox filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq exfatprogs
+          mkdir -p "$RUNNER_TEMP/bb" "$RUNNER_TEMP/mnt" "$RUNNER_TEMP/artwork"
+          curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
+            "https://github.com/D3ATHLY/blackbox/releases/download/2.0.0/BlackBox.exfat" \
+            -o "$RUNNER_TEMP/bb/BlackBox.exfat"
+          sudo mount -t exfat -o loop,ro "$RUNNER_TEMP/bb/BlackBox.exfat" "$RUNNER_TEMP/mnt"
+          sudo cp -a "$RUNNER_TEMP/mnt/data/pages" "$RUNNER_TEMP/pages"
+          sudo umount "$RUNNER_TEMP/mnt"
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/pages"
+      - name: Download original catalog screenshots at thumbnail resolution
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import concurrent.futures, csv, json, os, pathlib, time, urllib.request
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          pages = root / "pages"
+          out = root / "artwork"
+          records = {}
+          for path in pages.glob("*.json"):
+              try:
+                  data = json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  continue
+              shots = data.get("shots", []) if isinstance(data, dict) else []
+              for i, shot in enumerate(shots, 1):
+                  if not isinstance(shot, dict):
+                      continue
+                  url = shot.get("thumb") or shot.get("url")
+                  if isinstance(url, str) and url.startswith("https://image.api.playstation.com/"):
+                      records.setdefault(url, (path.stem, i, shot.get("url", "")))
+          items = list(records.items())
+          print(f"Unique original PlayStation thumbnail URLs: {len(items)}")
+          def fetch(item):
+              url, (title_id, index, full_url) = item
+              folder = out / title_id
+              folder.mkdir(parents=True, exist_ok=True)
+              target = folder / f"shot_{index:02d}.jpg"
+              error = ""
+              for attempt in range(3):
+                  try:
+                      req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0 BlackBox-Original-Asset-Extractor/1.0"})
+                      with urllib.request.urlopen(req, timeout=35) as response:
+                          content_type = response.headers.get("Content-Type", "")
+                          data = response.read(8 * 1024 * 1024 + 1)
+                      if len(data) > 8 * 1024 * 1024:
+                          raise ValueError("image exceeds 8 MiB safety limit")
+                      if not content_type.lower().startswith("image/") or not (data.startswith(b"\xff\xd8\xff") or data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"RIFF")):
+                          raise ValueError(f"not a recognized image ({content_type})")
+                      target.write_bytes(data)
+                      return [title_id, index, url, full_url, str(target.relative_to(out)), len(data), "ok", ""]
+                  except Exception as e:
+                      error = str(e)
+                      time.sleep(1.0 * (attempt + 1))
+              return [title_id, index, url, full_url, "", 0, "failed", error]
+          results = []
+          with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+              for n, result in enumerate(pool.map(fetch, items), 1):
+                  results.append(result)
+                  if n % 250 == 0:
+                      print(f"Processed {n}/{len(items)}")
+          with (out / "MANIFEST.csv").open("w", newline="", encoding="utf-8") as f:
+              w = csv.writer(f)
+              w.writerow(["title_id","shot_index","thumbnail_url","original_resolution_url","local_file","bytes","status","error"])
+              w.writerows(results)
+          ok = sum(r[6] == "ok" for r in results)
+          failed = len(results) - ok
+          total = sum(r[5] for r in results)
+          summary = [
+              "BLACKBOX ORIGINAL CATALOG ARTWORK",
+              "=================================",
+              f"Unique thumbnail URLs: {len(items)}",
+              f"Downloaded successfully: {ok}",
+              f"Failed: {failed}",
+              f"Total downloaded bytes: {total}",
+              "Images are original PlayStation CDN thumbnail assets referenced by the extracted BlackBox catalog.",
+              "The manifest preserves both thumbnail and full-resolution source URLs."
+          ]
+          (out / "REPORT.txt").write_text("\n".join(summary) + "\n", encoding="utf-8")
+          print("\n".join(summary))
+          if ok == 0:
+              raise SystemExit("No artwork was downloaded successfully")
+          PY
+      - name: Upload extracted artwork and source manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLACKBOX-ORIGINAL-CATALOG-ARTWORK
+          path: \${{ runner.temp }}/artwork/
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
