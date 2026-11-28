@@ -133,6 +133,42 @@ jobs:
           (out/'JAVASCRIPT-REGION-REPORT.txt').write_text('\\n'.join(report)+'\\n',encoding='utf-8')
           PY
           cat "$OUT/javascript-region/JAVASCRIPT-REGION-REPORT.txt"
+      - name: Extract and validate original BlackBox app.jsx bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/extracted"
+          OUT="$RUNNER_TEMP/analysis/original-app"
+          mkdir -p "$OUT"
+          python3 - "$ROOT/eboot.bin" "$OUT" <<'PY'
+          import hashlib,pathlib,sys
+          src=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2])
+          data=src.read_bytes()
+          start=0x5d7a680
+          end=0x63ef00f
+          marker=b'})();'
+          if data[start:start+7] != b'(() => ':
+              raise SystemExit(f'Unexpected bundle start at {start:#x}: {data[start:start+16]!r}')
+          if data[end-5:end] != marker:
+              raise SystemExit(f'Expected bundle terminator missing at {end-5:#x}')
+          bundle=data[start:end]
+          target=out/'app.jsx.bundle.js'
+          target.write_bytes(bundle)
+          report=[
+            'ORIGINAL BLACKBOX APP BUNDLE',
+            'source=eboot.bin',
+            f'start_offset=0x{start:x}',
+            f'end_offset_exclusive=0x{end:x}',
+            f'size_bytes={len(bundle)}',
+            f'sha256={hashlib.sha256(bundle).hexdigest()}',
+            f'terminator={marker.decode()}',
+            'validation=node --check'
+          ]
+          (out/'APP-BUNDLE-EXTRACTION-REPORT.txt').write_text('\\n'.join(report)+'\\n')
+          print('\\n'.join(report))
+          PY
+          node --check "$OUT/app.jsx.bundle.js"
+          echo "JavaScript syntax validation: PASS"
       - name: Validate embedded archive and video candidates
         shell: bash
         run: |
