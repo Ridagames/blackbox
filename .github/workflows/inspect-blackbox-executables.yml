@@ -34,7 +34,7 @@ jobs:
           OUT="$RUNNER_TEMP/analysis"
           mkdir -p "$OUT/embedded"
           find "$ROOT" -type f \( -name '*.elf' -o -name 'eboot.bin' -o -name '*.prx' \) -print0 | while IFS= read -r -d '' f; do
-            rel="\${f#"$ROOT"/}"
+            rel="${f#"$ROOT"/}"
             safe="$(printf '%s' "$rel" | tr '/ ' '__')"
             {
               echo "FILE: $rel"
@@ -75,7 +75,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: BLACKBOX-EXECUTABLE-DEEP-ANALYSIS
-          path: \${{ runner.temp }}/analysis/
+          path: ${{ runner.temp }}/analysis/
           if-no-files-found: warn
           compression-level: 0
           retention-days: 7
